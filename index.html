@@ -2147,7 +2147,7 @@ function UserDashboard({ userId, openDetail, setPage }) {
             <button className="btn sm" onClick={() => {
               const rows = [["Folio","Tipo","Concepto","Fecha","Monto","Saldo","Status"]];
               filtradas.forEach(s => rows.push([s.id, s.tipo, s.concepto, window.fmtFecha(s.fecha), s.monto, s.saldoPendiente ?? "-", s.status]));
-              const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(",")).join('\n');
+              const csv = rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
               const a = document.createElement("a");
               a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
               a.download = `mis_solicitudes_${new Date().toISOString().slice(0,10)}.csv`;
@@ -3114,7 +3114,7 @@ function GerenteBandeja({ openDetail }) {
       rows.push([s.id, s.tipo, u.nombre, u.centro, s.concepto,
         window.fmtFecha(s.fecha), s.monto, s.status]);
     });
-    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join('\n');
+    const csv = rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
     const a = document.createElement("a");
     a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
     a.download = `pendientes_gerente_${new Date().toISOString().slice(0,10)}.csv`;
@@ -3375,7 +3375,7 @@ function TesoreriaBandeja({ openDetail }) {
       const u = window.findUser(s.usuario);
       rows.push([s.id, u.nombre, "••••4392", "BBVA", s.monto, s.concepto]);
     });
-    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join('\n');
+    const csv = rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
     const a = document.createElement("a");
     a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
     a.download = `layout_spei_${new Date().toISOString().slice(0,10)}.csv`;
@@ -4241,8 +4241,7 @@ function DetalleModal({ id, onClose }) {
       rows.push([l.cuenta || "—", meta.nombre, l.desc, l.monto, l.uuid || "—"]);
     });
     rows.push(["","","TOTAL", totalLineas, ""]);
-    const csv = rows.map(r => r.map(x => '"' + String(x).replace(/"/g, '""') + '"').join(",")).join('
-');
+    const csv = rows.map(r => r.map(x => '"' + String(x).replace(/"/g, '""') + '"').join(",")).join('\n');
     const a = document.createElement("a");
     a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
     a.download = s.id + "_desglose.csv";
