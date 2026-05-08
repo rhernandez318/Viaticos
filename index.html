@@ -1946,9 +1946,9 @@ const NAV = {
     { id: "ajustes",   label: "Ajustes",            icon: "settings" },
   ],
   contador: [
-    { id: "reportes",  label: "Reportes",           icon: "chart" },
     { id: "polizas",   label: "Pólizas contables",  icon: "book" },
     { id: "catalogo",  label: "Catálogo de gastos", icon: "book" },
+    { id: "perfil",    label: "Mi perfil",           icon: "settings" },
   ],
 };
 
@@ -4634,22 +4634,26 @@ function ContadorPolizas() {
   const PROVEEDOR_UNICO = "60000";
 
   const hoy = window.HOY;
-  const primerDiaMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+  // Default: últimos 90 días para asegurar datos en el demo
   const fmt = d => d.toISOString().split("T")[0];
+  const hace90 = new Date(hoy); hace90.setDate(hace90.getDate() - 90);
 
-  const [fechaIni, setFechaIni] = React.useState(fmt(primerDiaMes));
+  const [fechaIni, setFechaIni] = React.useState(fmt(hace90));
   const [fechaFin, setFechaFin] = React.useState(fmt(hoy));
   const [centro,   setCentro]   = React.useState("todos");
   const [polizas,  setPolizas]  = React.useState([]);
   const [generado, setGenerado] = React.useState(false);
 
-  // Genera las líneas de póliza a partir de solicitudes liberadas en el rango
+  // Genera las líneas de póliza — SOLO comprobaciones y reembolsos
   const generarPolizas = () => {
     const desde = new Date(fechaIni + "T00:00:00");
     const hasta  = new Date(fechaFin + "T23:59:59");
 
     const solicitudes = window.SOLICITUDES.filter(s => {
-      if (s.status !== "liberado" && s.status !== "comprobado") return false;
+      // Solo comprobaciones y reembolsos — los anticipos no generan póliza
+      if (s.tipo !== "comprobacion" && s.tipo !== "reembolso") return false;
+      // Cualquier status excepto solicitado y rechazado
+      if (s.status === "rechazado" || s.status === "solicitado") return false;
       if (s.fecha < desde || s.fecha > hasta) return false;
       if (centro !== "todos") {
         const u = window.findUser(s.usuario);
@@ -5215,7 +5219,7 @@ const DEFAULT_PAGE = {
   gerente:  "bandeja",
   tesoreria:"liberacion",
   admin:    "usuarios",
-  contador: "reportes",
+  contador: "polizas",
 };
 
 // Páginas válidas por rol — cualquier página fuera de esta lista
@@ -5225,7 +5229,7 @@ const VALID_PAGES = {
   gerente:  ["bandeja","equipo","historial","reportes","perfil","mis-solicitudes","anticipos","reembolsos","comprobaciones"],
   tesoreria:["liberacion","pagados","deudores","reportes","perfil"],
   admin:    ["usuarios","centros","catalogo","reportes","ajustes","perfil"],
-  contador: ["reportes","polizas","catalogo","perfil"],
+  contador: ["polizas","catalogo","perfil"],
 };
 
 function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
@@ -5270,10 +5274,9 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     return <AdminUsuarios/>;
   }
   if (role === "contador") {
-    if (page === "reportes")  return <Reportes/>;
     if (page === "polizas")   return <ContadorPolizas/>;
     if (page === "catalogo")  return <AdminCatalogo/>;
-    return <Reportes/>;
+    return <ContadorPolizas/>;
   }
 
   return null;
@@ -5534,6 +5537,9 @@ function ThemePanel({ theme, onTheme, accent, onAccent, density, onDensity, isAd
         <div style={rowStyle}>
           <button style={chipStyle(density==="comfortable")} onClick={()=>onDensity("comfortable")}>Cómoda</button>
           <button style={chipStyle(density==="compact")}     onClick={()=>onDensity("compact")}>Compacta</button>
+          {(role==="usuario" || role==="contador") && (
+            <button style={chipStyle(density==="mobile")} onClick={()=>onDensity("mobile")}>📱 Móvil</button>
+          )}
         </div>
 
         {isAdmin && onRole && (
@@ -5849,7 +5855,8 @@ function App() {
         accent={t.accent} onAccent={v=>setTweak("accent",v)}
         density={t.density} onDensity={v=>setTweak("density",v)}
         isAdmin={isAdmin}
-        role={t.role||role} onRole={isAdmin ? handleSetRole : null}
+        role={activeRole}
+        onRole={isAdmin ? handleSetRole : null}
       />
     </>
   );
