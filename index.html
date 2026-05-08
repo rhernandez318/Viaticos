@@ -1131,6 +1131,7 @@ const USUARIOS = [
   { id: "T001", nombre: "Valeria Guzmán",        correo: "valeria.guzman@viaticos.mx", rol: "tesoreria", centro: "100010009", gerente: null,    iniciales: "VG", password: "1234" },
   { id: "T002", nombre: "Wences Olivares",       correo: "wences.olivares@viaticos.mx", rol: "tesoreria", centro: "100010009", gerente: null,    iniciales: "WO", password: "1234" },
   { id: "A001", nombre: "Ximena Rojas",          correo: "ximena.rojas@viaticos.mx", rol: "admin",       centro: "100010009", gerente: null,    iniciales: "XR", password: "1234" },
+  { id: "C001", nombre: "Carlos Peñafiel",       correo: "c.penafiel@viaticos.mx",    rol: "contador",    centro: "100010009", gerente: null,    iniciales: "CP", password: "1234" },
 ];
 
 const HOY = new Date(2026, 4, 7); // 7 mayo 2026
@@ -1944,6 +1945,11 @@ const NAV = {
     { id: "reportes",  label: "Reportes",           icon: "chart" },
     { id: "ajustes",   label: "Ajustes",            icon: "settings" },
   ],
+  contador: [
+    { id: "reportes",  label: "Reportes",           icon: "chart" },
+    { id: "polizas",   label: "Pólizas contables",  icon: "book" },
+    { id: "catalogo",  label: "Catálogo de gastos", icon: "book" },
+  ],
 };
 
 const ROLE_LABELS = {
@@ -1951,6 +1957,7 @@ const ROLE_LABELS = {
   gerente: "Gerente",
   tesoreria: "Tesorería",
   admin: "Admin",
+  contador: "Contador",
 };
 
 const ROLE_USERS = {
@@ -1958,6 +1965,7 @@ const ROLE_USERS = {
   gerente: "U101",
   tesoreria: "T001",
   admin: "A001",
+  contador: "C001",
 };
 
 function Sidebar({ role, page, setPage, onLogout }) {
@@ -4027,14 +4035,18 @@ function Reportes() {
     .filter(d=>d.u)
     .sort((a,b)=>b.monto-a.monto);
 
-  // Por departamento
-  const porDepto = {};
+  // Por centro de beneficio
+  const porCentro = {};
   solicsFiltradas.forEach(s => {
     const u = window.findUser(s.usuario);
-    const c = u ? window.findCentro(u.centro) : null;
-    if (c) porDepto[c.depto]=(porDepto[c.depto]||0)+s.monto;
+    if (!u) return;
+    const c = window.findCentro(u.centro);
+    const key = c ? `${c.id} · ${c.nombre}` : u.centro;
+    if (!porCentro[key]) porCentro[key] = { monto:0, cnt:0, centroId: u.centro };
+    porCentro[key].monto += s.monto;
+    porCentro[key].cnt++;
   });
-  const deptoMax = Math.max(...Object.values(porDepto),1);
+  const centroMax = Math.max(...Object.values(porCentro).map(v=>v.monto), 1);
 
   // Por cuenta contable
   const porCuenta = {};
@@ -4061,9 +4073,10 @@ function Reportes() {
       topDeudores.forEach(d=>rows.push([d.u.nombre,d.u.centro,d.monto]));
       name="reporte_deudores";
     } else {
-      rows=[["Departamento","Gasto total"]];
-      Object.entries(porDepto).sort((a,b)=>b[1]-a[1]).forEach(([dep,m])=>rows.push([dep,m]));
-      name="reporte_departamentos";
+      rows=[["Centro de beneficio","ID","Solicitudes","Gasto total"]];
+      Object.entries(porCentro).sort((a,b)=>b[1].monto-a[1].monto)
+        .forEach(([key,d])=>rows.push([key,d.centroId,d.cnt,d.monto]));
+      name="reporte_centros";
     }
     const csv=rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
     const a=document.createElement("a");
@@ -4125,7 +4138,7 @@ function Reportes() {
         {[
           {k:"aging",    label:"Antigüedad de saldos"},
           {k:"deudores", label:"Top deudores"},
-          {k:"depto",    label:"Por departamento"},
+          {k:"centro",   label:"Por área (centro)"},
           {k:"mensual",  label:"Gasto mensual"},
         ].map(t=>(
           <div key={t.k}
@@ -4225,26 +4238,43 @@ function Reportes() {
         </div>
       )}
 
-      {/* Por departamento */}
-      {tabRep==="depto" && (
-        <div className="card">
-          <div className="card-head">
-            <h3 className="card-title">Gasto por departamento</h3>
+      {/* Por área — centro de beneficio */}
+      {tabRep==="centro" && (
+        <div className="card" style={{padding:0}}>
+          <div className="card-head" style={{padding:"14px 20px 10px"}}>
+            <h3 className="card-title">Gasto por área / centro de beneficio</h3>
             <div className="card-sub">YTD {anio}{centro!=="todos"?` · ${centro}`:""}</div>
           </div>
-          {Object.entries(porDepto).length===0 ? (
-            <div className="muted" style={{padding:"16px 0",fontSize:12.5}}>Sin datos para este filtro</div>
-          ) : Object.entries(porDepto).sort((a,b)=>b[1]-a[1]).map(([dep,m])=>(
-            <div key={dep} style={{marginBottom:14}}>
-              <div className="spread" style={{marginBottom:6}}>
-                <span style={{fontSize:13}}>{dep}</span>
-                <strong className="mono">{window.fmtMXN(m)}</strong>
-              </div>
-              <div style={{height:6,background:"var(--surface-3)",borderRadius:3,overflow:"hidden"}}>
-                <div style={{height:"100%",width:`${(m/deptoMax)*100}%`,background:"var(--accent)",borderRadius:3}}></div>
-              </div>
-            </div>
-          ))}
+          {Object.entries(porCentro).length===0 ? (
+            <div style={{padding:"24px",color:"var(--text-3)",fontSize:12.5,textAlign:"center"}}>Sin datos para este filtro</div>
+          ) : (
+            <table className="t">
+              <thead>
+                <tr><th>Centro de beneficio</th><th>Clave</th><th className="right">Solicitudes</th><th className="right">Gasto total</th><th style={{width:160}}>Participación</th></tr>
+              </thead>
+              <tbody>
+                {Object.entries(porCentro).sort((a,b)=>b[1].monto-a[1].monto).map(([key,d])=>{
+                  const pct = Math.round(d.monto/centroMax*100);
+                  return (
+                    <tr key={key}>
+                      <td style={{fontWeight:500}}>{key.split(' · ')[1] || key}</td>
+                      <td className="mono muted" style={{fontSize:11}}>{d.centroId}</td>
+                      <td className="num">{d.cnt}</td>
+                      <td className="num" style={{fontWeight:600}}>{window.fmtMXN(d.monto)}</td>
+                      <td>
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <div style={{flex:1,height:6,background:"var(--surface-3,rgba(255,255,255,.08))",borderRadius:3,overflow:"hidden"}}>
+                            <div style={{height:"100%",width:pct+"%",background:"var(--accent)",borderRadius:3}}></div>
+                          </div>
+                          <span style={{fontSize:11,color:"var(--text-3)",width:30,textAlign:"right"}}>{pct}%</span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
 
@@ -4596,6 +4626,335 @@ function DetalleModal({ id, onClose }) {
   );
 }
 
+
+// ══════════════════════════════════════════════════════
+//  MÓDULO CONTADOR — Pólizas Contables
+// ══════════════════════════════════════════════════════
+function ContadorPolizas() {
+  const PROVEEDOR_UNICO = "60000";
+
+  const hoy = window.HOY;
+  const primerDiaMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+  const fmt = d => d.toISOString().split("T")[0];
+
+  const [fechaIni, setFechaIni] = React.useState(fmt(primerDiaMes));
+  const [fechaFin, setFechaFin] = React.useState(fmt(hoy));
+  const [centro,   setCentro]   = React.useState("todos");
+  const [polizas,  setPolizas]  = React.useState([]);
+  const [generado, setGenerado] = React.useState(false);
+
+  // Genera las líneas de póliza a partir de solicitudes liberadas en el rango
+  const generarPolizas = () => {
+    const desde = new Date(fechaIni + "T00:00:00");
+    const hasta  = new Date(fechaFin + "T23:59:59");
+
+    const solicitudes = window.SOLICITUDES.filter(s => {
+      if (s.status !== "liberado" && s.status !== "comprobado") return false;
+      if (s.fecha < desde || s.fecha > hasta) return false;
+      if (centro !== "todos") {
+        const u = window.findUser(s.usuario);
+        if (!u || u.centro !== centro) return false;
+      }
+      return true;
+    });
+
+    // Por cada solicitud generar movimientos contables
+    const lineas = [];
+    let numPoliza = 1;
+
+    solicitudes.forEach(s => {
+      const u = window.findUser(s.usuario);
+      if (!u) return;
+      const c = window.findCentro(u.centro);
+      const centroId = c ? c.id : u.centro;
+
+      // Obtener desglose real o estimado
+      const items = (() => {
+        if (s.cfdi && s.cfdi.length > 0) {
+          return s.cfdi.map(cf => ({
+            cuenta: cf.cuenta || "6121200001",
+            desc:   cf.concepto || cf.emisor || s.concepto,
+            monto:  cf.total || 0,
+            emisor: cf.emisor || "—",
+          }));
+        }
+        if (s.items && s.items.length > 0) {
+          return s.items.map(it => ({
+            cuenta: it.cuenta || "6121200001",
+            desc:   it.desc || s.concepto,
+            monto:  it.monto || 0,
+            emisor: "—",
+          }));
+        }
+        return [{ cuenta:"6121200001", desc: s.concepto, monto: s.monto, emisor:"—" }];
+      })();
+
+      const totalMov = items.reduce((a,i) => a+i.monto, 0);
+      const fechaFmt = window.fmtFecha(s.fecha);
+
+      // Cargos: una línea por tipo de gasto
+      items.forEach((it, idx) => {
+        if (it.monto <= 0) return;
+        const meta = window.findCuenta(it.cuenta) || { nombre: it.cuenta };
+        lineas.push({
+          poliza:    `POL-${String(numPoliza).padStart(4,"0")}`,
+          folio:     s.id,
+          fecha:     fechaFmt,
+          centro:    centroId,
+          area:      c ? c.nombre : centroId,
+          cuenta:    it.cuenta,
+          nombreCuenta: meta.nombre,
+          tipo:      "C",  // Cargo
+          debe:      it.monto,
+          haber:     0,
+          concepto:  it.desc,
+          proveedor: it.emisor !== "—" ? it.emisor : "—",
+          usuario:   u.nombre,
+          ref:       s.id,
+        });
+      });
+
+      // Abono: proveedor único 60000 por el total
+      lineas.push({
+        poliza:    `POL-${String(numPoliza).padStart(4,"0")}`,
+        folio:     s.id,
+        fecha:     fechaFmt,
+        centro:    centroId,
+        area:      c ? c.nombre : centroId,
+        cuenta:    PROVEEDOR_UNICO,
+        nombreCuenta: "Proveedor Único Viáticos",
+        tipo:      "A",  // Abono
+        debe:      0,
+        haber:     totalMov,
+        concepto:  `Viáticos ${u.nombre} · ${s.concepto}`,
+        proveedor: `${u.nombre} · ${u.correo}`,
+        usuario:   u.nombre,
+        ref:       s.id,
+      });
+
+      numPoliza++;
+    });
+
+    setPolizas(lineas);
+    setGenerado(true);
+  };
+
+  const exportarPolizas = () => {
+    if (!polizas.length) return;
+    const rows = [["Póliza","Folio","Fecha","Centro","Área","Cuenta","Nombre cuenta","D/A","Debe","Haber","Concepto","Proveedor / Emisor","Registrado por"]];
+    polizas.forEach(p => rows.push([
+      p.poliza, p.folio, p.fecha, p.centro, p.area,
+      p.cuenta, p.nombreCuenta, p.tipo,
+      p.debe || "", p.haber || "",
+      p.concepto, p.proveedor, p.usuario,
+    ]));
+    const csv = rows.map(r => r.map(c => '"'+String(c).replace(/"/g,'""')+'"').join(",")).join('\n');
+    const a = document.createElement("a");
+    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
+    a.download = `polizas_${fechaIni}_${fechaFin}.csv`;
+    a.click();
+  };
+
+  const totalDebe  = polizas.reduce((a,p)=>a+(p.debe||0),0);
+  const totalHaber = polizas.reduce((a,p)=>a+(p.haber||0),0);
+  const polizasUnicas = [...new Set(polizas.map(p=>p.poliza))].length;
+
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Pólizas contables</h1>
+          <div className="page-sub">Generación de movimientos contables por rango de fecha y centro de beneficio</div>
+        </div>
+        {generado && polizas.length > 0 && (
+          <button className="btn primary" onClick={exportarPolizas}>
+            <Icon name="download" size={13}/> Exportar CSV · {polizasUnicas} pólizas
+          </button>
+        )}
+      </div>
+
+      {/* Filtros */}
+      <div className="card" style={{marginBottom:16}}>
+        <h3 className="card-title" style={{marginBottom:14}}>Parámetros de generación</h3>
+        <div className="form-grid cols-2" style={{marginBottom:16}}>
+          <div className="field">
+            <label>Fecha inicial</label>
+            <input className="input" type="date" value={fechaIni}
+              onChange={e=>{setFechaIni(e.target.value);setGenerado(false);}}/>
+          </div>
+          <div className="field">
+            <label>Fecha final</label>
+            <input className="input" type="date" value={fechaFin}
+              onChange={e=>{setFechaFin(e.target.value);setGenerado(false);}}/>
+          </div>
+          <div className="field">
+            <label>Centro de beneficio</label>
+            <select className="select" value={centro}
+              onChange={e=>{setCentro(e.target.value);setGenerado(false);}}>
+              <option value="todos">Todos los centros</option>
+              {window.CENTROS.map(c=><option key={c.id} value={c.id}>{c.id} · {c.nombre}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label>Proveedor acreedor</label>
+            <input className="input mono" value={`${PROVEEDOR_UNICO} — Proveedor Único Viáticos`} disabled/>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          <button className="btn primary" onClick={generarPolizas}>
+            <Icon name="sparkle" size={13}/> Generar pólizas
+          </button>
+          {generado && (
+            <button className="btn" onClick={()=>{setPolizas([]);setGenerado(false);}}>
+              Limpiar
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Resultado */}
+      {generado && polizas.length === 0 && (
+        <div className="card">
+          <div className="empty">
+            <div className="empty-ic"><Icon name="search" size={20}/></div>
+            <div style={{fontWeight:600,fontSize:14,color:"var(--text)"}}>Sin movimientos</div>
+            <div style={{marginTop:4}}>No hay solicitudes liberadas en el rango y filtro seleccionado</div>
+          </div>
+        </div>
+      )}
+
+      {generado && polizas.length > 0 && (
+        <>
+          <div className="kpi-grid">
+            <div className="kpi">
+              <div className="kpi-label">Pólizas generadas</div>
+              <div className="kpi-value">{polizasUnicas}</div>
+              <div className="kpi-delta neutral">{polizas.length} movimientos</div>
+            </div>
+            <div className="kpi">
+              <div className="kpi-label">Total debe</div>
+              <div className="kpi-value">{window.fmtMXN(totalDebe)}</div>
+            </div>
+            <div className="kpi">
+              <div className="kpi-label">Total haber</div>
+              <div className="kpi-value">{window.fmtMXN(totalHaber)}</div>
+            </div>
+            <div className="kpi">
+              <div className="kpi-label">Cuadre</div>
+              <div className="kpi-value" style={{color:Math.abs(totalDebe-totalHaber)<0.01?"var(--success)":"var(--danger)"}}>
+                {Math.abs(totalDebe-totalHaber)<0.01 ? "✓ Cuadra" : window.fmtMXN(Math.abs(totalDebe-totalHaber))}
+              </div>
+            </div>
+          </div>
+
+          {/* Tabla de pólizas agrupada por póliza */}
+          {[...new Set(polizas.map(p=>p.poliza))].map(numPol => {
+            const movs = polizas.filter(p=>p.poliza===numPol);
+            const ref  = movs[0];
+            const totD = movs.reduce((a,p)=>a+(p.debe||0),0);
+            const totH = movs.reduce((a,p)=>a+(p.haber||0),0);
+            return (
+              <div key={numPol} className="card" style={{marginBottom:14,padding:0}}>
+                {/* Header de póliza */}
+                <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",
+                  display:"flex",alignItems:"center",gap:16,background:"var(--surface-2,rgba(255,255,255,.04))",
+                  borderRadius:"var(--r-lg) var(--r-lg) 0 0"}}>
+                  <span className="mono" style={{fontWeight:700,fontSize:14}}>{numPol}</span>
+                  <span className="badge tipo">{ref.folio}</span>
+                  <span className="muted" style={{fontSize:12}}>{ref.fecha}</span>
+                  <span className="muted" style={{fontSize:12}}>{ref.area} · {ref.centro}</span>
+                  <span style={{marginLeft:"auto",fontWeight:600,fontFamily:"var(--f-mono,monospace)"}}>{window.fmtMXN(totD)}</span>
+                </div>
+
+                <table className="t">
+                  <thead>
+                    <tr>
+                      <th>Cuenta</th>
+                      <th>Nombre cuenta</th>
+                      <th>D/A</th>
+                      <th>Concepto</th>
+                      <th>Proveedor / Emisor factura</th>
+                      <th className="right">Debe</th>
+                      <th className="right">Haber</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movs.map((m, i) => (
+                      <tr key={i} style={{background: m.tipo==="A" ? "var(--surface-2,rgba(255,255,255,.03))" : "transparent"}}>
+                        <td className="mono" style={{fontWeight:600,color: m.tipo==="A"?"var(--info)":"var(--text)"}}>{m.cuenta}</td>
+                        <td style={{fontSize:12}}>{m.nombreCuenta}</td>
+                        <td>
+                          <span className={`badge ${m.tipo==="C"?"solicitado":"autorizado"}`}>
+                            <span className="dot"></span>{m.tipo==="C" ? "Cargo" : "Abono"}
+                          </span>
+                        </td>
+                        <td style={{fontSize:12,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m.concepto}</td>
+                        <td style={{fontSize:12}}>
+                          {m.tipo==="C" ? (
+                            <EditableCell
+                              value={m.proveedor}
+                              placeholder="Nombre del proveedor / emisor"
+                              onChange={v => {
+                                m.proveedor = v;
+                                setPolizas([...polizas]);
+                              }}
+                            />
+                          ) : (
+                            <span className="muted">{m.proveedor}</span>
+                          )}
+                        </td>
+                        <td className="num" style={{fontFamily:"var(--f-mono,monospace)"}}>{m.debe ? window.fmtMXN(m.debe) : "—"}</td>
+                        <td className="num" style={{fontFamily:"var(--f-mono,monospace)",color:"var(--info)"}}>{m.haber ? window.fmtMXN(m.haber) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{borderTop:"1.5px solid var(--border)"}}>
+                      <td colSpan={5} style={{padding:"8px 10px",textAlign:"right",fontWeight:600,fontSize:12}}>Totales</td>
+                      <td className="num" style={{fontWeight:700}}>{window.fmtMXN(totD)}</td>
+                      <td className="num" style={{fontWeight:700,color:"var(--info)"}}>{window.fmtMXN(totH)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            );
+          })}
+        </>
+      )}
+    </>
+  );
+}
+
+// Campo editable inline para el nombre del proveedor en pólizas
+function EditableCell({ value, placeholder, onChange }) {
+  const [editing, setEditing] = React.useState(false);
+  const [val, setVal]         = React.useState(value || "");
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        className="input"
+        style={{padding:"3px 6px",fontSize:12,height:28,minWidth:180}}
+        value={val}
+        placeholder={placeholder}
+        onChange={e => setVal(e.target.value)}
+        onBlur={() => { onChange(val); setEditing(false); }}
+        onKeyDown={e => { if(e.key==="Enter"){onChange(val);setEditing(false);} if(e.key==="Escape")setEditing(false); }}
+      />
+    );
+  }
+  return (
+    <span
+      onClick={() => setEditing(true)}
+      title="Clic para editar el nombre del proveedor"
+      style={{cursor:"pointer",fontSize:12,
+        color: val && val!=="—" ? "var(--text)" : "var(--text-3)",
+        borderBottom:"1px dashed var(--border)",paddingBottom:1}}>
+      {val && val!=="—" ? val : <span style={{fontStyle:"italic",opacity:.6}}>+ Agregar proveedor</span>}
+    </span>
+  );
+}
+
 Object.assign(window, { GerenteBandeja, TesoreriaBandeja, AdminUsuarios, AdminCentros, AdminCatalogo, Reportes, DetalleModal, EditModal });
 
 
@@ -4856,6 +5215,7 @@ const DEFAULT_PAGE = {
   gerente:  "bandeja",
   tesoreria:"liberacion",
   admin:    "usuarios",
+  contador: "reportes",
 };
 
 // Páginas válidas por rol — cualquier página fuera de esta lista
@@ -4865,6 +5225,7 @@ const VALID_PAGES = {
   gerente:  ["bandeja","equipo","historial","reportes","perfil","mis-solicitudes","anticipos","reembolsos","comprobaciones"],
   tesoreria:["liberacion","pagados","deudores","reportes","perfil"],
   admin:    ["usuarios","centros","catalogo","reportes","ajustes","perfil"],
+  contador: ["reportes","polizas","catalogo","perfil"],
 };
 
 function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
@@ -4907,6 +5268,12 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     if (page === "reportes")  return <Reportes/>;
     if (page === "ajustes")   return <AdminAjustes/>;
     return <AdminUsuarios/>;
+  }
+  if (role === "contador") {
+    if (page === "reportes")  return <Reportes/>;
+    if (page === "polizas")   return <ContadorPolizas/>;
+    if (page === "catalogo")  return <AdminCatalogo/>;
+    return <Reportes/>;
   }
 
   return null;
