@@ -5561,12 +5561,235 @@ Object.assign(window, { GerenteBandeja, TesoreriaBandeja, AdminUsuarios, AdminCe
 // ═══ mobile ═══
 // Viáticos — Mobile (usuario en celular)
 
-function MobileApp({ userId, onLogout }) {
+
+// ── MobileScan — lector CFDI real para la vista móvil ────────────────────────
+function MobileScan({ userId, onDone }) {
+  const [facturas, setFacturas] = React.useState([]);
+  const [enviado, setEnviado]   = React.useState(false);
+  const [concepto, setConcepto] = React.useState("");
+  const [toast, setToast]       = React.useState(null);
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
+
+  const handleFile = (e) => {
+    const files = Array.from(e.target.files || []);
+    files.forEach(file => {
+      if (!file.name.toLowerCase().endsWith(".xml")) {
+        // Non-XML: add as plain attachment
+        setFacturas(prev => [...prev, {
+          nombre: file.name, emisor: file.name, concepto: file.name,
+          total: 0, cuenta: "6121200001", confianza: 0, isCFDI: false
+        }]);
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const txt = ev.target.result;
+        // Use the parseCFDI logic inline (simplified, same as CompUploader)
+        try {
+          const doc = new DOMParser().parseFromString(txt, "application/xml");
+          if (doc.querySelector("parsererror")) { showToast("XML inválido: " + file.name); return; }
+          const qn = (parent, localName) => {
+            let el = parent.querySelector(localName);
+            if (el) return el;
+            const all = parent.getElementsByTagName("*");
+            for (let i = 0; i < all.length; i++) if (all[i].localName === localName) return all[i];
+            return null;
+          };
+          const attr = (el, ...names) => {
+            if (!el) return "";
+            for (const n of names) {
+              const v = el.getAttribute(n) || el.getAttribute(n.toLowerCase()) || el.getAttribute(n[0].toUpperCase()+n.slice(1));
+              if (v) return v;
+            }
+            return "";
+          };
+          const comp = qn(doc, "Comprobante") || doc.documentElement;
+          const total    = parseFloat(attr(comp, "Total", "total") || "0");
+          const subtotal = parseFloat(attr(comp, "SubTotal","Subtotal","subtotal") || "0");
+          const emisorEl = qn(doc, "Emisor");
+          const emisor   = attr(emisorEl, "Nombre","nombre") || attr(emisorEl, "Rfc","rfc") || "";
+          const conceptoEls = Array.from(doc.getElementsByTagName("*")).filter(e => e.localName === "Concepto");
+          const conceptoStr = conceptoEls.map(c => attr(c,"Descripcion","descripcion")).filter(Boolean).join(" · ").slice(0,80) || "—";
+          const tfd  = Array.from(doc.getElementsByTagName("*")).find(e => e.localName === "TimbreFiscalDigital");
+          const uuid = tfd ? (attr(tfd,"UUID","uuid") || "").toUpperCase() : "";
+          let iva = 0;
+          Array.from(doc.getElementsByTagName("*")).filter(e=>e.localName==="Traslado").forEach(t=>{
+            const imp = attr(t,"Impuesto","impuesto");
+            if (imp==="002"||imp.toUpperCase()==="IVA") iva += parseFloat(attr(t,"Importe","importe")||"0")||0;
+          });
+          if (!iva && total && subtotal) iva = Math.round((total-subtotal)*100)/100;
+
+          // Classify
+          const text = (emisor+" "+conceptoStr).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+          let cuenta = "6121200001", confianza = 0.5;
+          if (/(pemex|gasolina|magna|premium|diesel|combustible)/.test(text)) { cuenta="6120800001"; confianza=0.96; }
+          else if (/(aeromexico|volaris|vivaaerobus|vuelo|pasaje aereo|boleto)/.test(text)) { cuenta="6122900001"; confianza=0.96; }
+          else if (/(tua|asur|aifa|oma|gap aeropuertos)/.test(text)) { cuenta="6122700001"; confianza=0.95; }
+          else if (/(hotel|hospedaje|marriott|fiesta inn|holiday|city express|camino real|hilton)/.test(text)) { cuenta="6122900003"; confianza=0.95; }
+          else if (/(restaurante|comida|alimento|cafeteria|cena|desayuno)/.test(text)) { cuenta="6122900005"; confianza=0.93; }
+          else if (/(caseta|peaje|capufe|autopista)/.test(text)) { cuenta="6122900002"; confianza=0.95; }
+          else if (/(estacionamiento|parking)/.test(text)) { cuenta="6122900004"; confianza=0.94; }
+          else if (/(hertz|sixt|avis|alamo|renta de auto|renta vehicular)/.test(text)) { cuenta="6122900006"; confianza=0.94; }
+
+          const meta = window.findCuenta(cuenta) || { nombre: cuenta };
+          setFacturas(prev => [...prev, {
+            nombre: file.name, uuid: uuid.slice(0,18)+(uuid.length>18?"…":""),
+            emisor, concepto: conceptoStr, subtotal: Math.round(subtotal*100)/100,
+            iva: Math.round(iva*100)/100, total: Math.round(total*100)/100,
+            cuenta, nombreCuenta: meta.nombre, confianza, isCFDI: true,
+          }]);
+        } catch(err) { showToast("Error al leer: " + file.name); }
+      };
+      reader.readAsText(file, "utf-8");
+    });
+    e.target.value = "";
+  };
+
+  const enviarReembolso = () => {
+    if (!facturas.length) { showToast("Sube al menos una factura"); return; }
+    const total = facturas.reduce((a,f)=>a+(f.total||0),0);
+    const id = "REE-" + Date.now().toString().slice(-6);
+    window.SOLICITUDES.unshift({
+      id, tipo:"reembolso",
+      concepto: concepto.trim() || facturas.map(f=>f.emisor).filter(Boolean).join(", ").slice(0,80),
+      usuario: userId, monto: total, fecha: new Date(),
+      status:"solicitado", comprobantes: facturas.length, cfdi: facturas,
+    });
+    showToast("✓ Reembolso " + id + " enviado");
+    setEnviado(true);
+    setTimeout(() => onDone && onDone(), 1500);
+  };
+
+  const labelStyle = {fontSize:10,fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase",
+    color:"var(--text-3,rgba(255,255,255,.4))",display:"block",marginBottom:6};
+  const chipStyle  = (ok) => ({padding:"2px 8px",borderRadius:20,fontSize:10,fontWeight:500,
+    background:ok?"var(--success-soft,#e1f5ee)":"var(--warn-soft,#faeeda)",
+    color:ok?"var(--success,#1d9e75)":"var(--warn,#ef9f27)"});
+
+  return (
+    <div>
+      {toast && (
+        <div style={{position:"fixed",bottom:80,left:"50%",transform:"translateX(-50%)",zIndex:500,
+          background:"var(--accent,#c5f24d)",color:"var(--accent-fg,#0a0b0f)",
+          padding:"8px 16px",borderRadius:20,fontSize:12,fontWeight:500,whiteSpace:"nowrap"}}>
+          {toast}
+        </div>
+      )}
+
+      {/* Drop zone / selector */}
+      <div className="dropzone" style={{padding:24,marginBottom:14,cursor:"pointer"}}
+        onClick={() => document.getElementById("m-file-input").click()}>
+        <div className="dropzone-icon"><Icon name="upload" size={22}/></div>
+        <div className="dropzone-title">Toca para seleccionar XML o foto</div>
+        <div className="dropzone-sub">XML · PDF · JPG — detectamos RFC, monto e IVA</div>
+      </div>
+      <input id="m-file-input" type="file" multiple accept=".xml,.pdf,.jpg,.jpeg,.png"
+        style={{display:"none"}} onChange={handleFile}/>
+
+      {/* Facturas procesadas */}
+      {facturas.map((f, i) => (
+        <div key={i} className="m-card" style={{marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+            <div style={{fontSize:12,fontWeight:600,flex:1,marginRight:8,
+              overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.nombre}</div>
+            <button onClick={()=>setFacturas(prev=>prev.filter((_,j)=>j!==i))}
+              style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",
+                fontSize:16,lineHeight:1,padding:"0 2px"}}>×</button>
+          </div>
+
+          {f.isCFDI ? (
+            <>
+              <div className="spread" style={{padding:"3px 0"}}>
+                <span className="muted" style={{fontSize:11}}>Emisor</span>
+                <strong style={{fontSize:12}}>{f.emisor||"—"}</strong>
+              </div>
+              <div className="spread" style={{padding:"3px 0"}}>
+                <span className="muted" style={{fontSize:11}}>Total</span>
+                <strong className="mono" style={{fontSize:13}}>{window.fmtMXN(f.total)}</strong>
+              </div>
+              <div className="spread" style={{padding:"3px 0"}}>
+                <span className="muted" style={{fontSize:11}}>IVA</span>
+                <strong className="mono" style={{fontSize:12}}>{window.fmtMXN(f.iva)}</strong>
+              </div>
+              <div style={{marginTop:8,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div>
+                  <div style={{fontSize:11,fontWeight:600}}>{f.nombreCuenta}</div>
+                  <div style={{fontFamily:"monospace",fontSize:10,color:"var(--text-3)"}}>{f.cuenta}</div>
+                </div>
+                <span style={chipStyle(f.confianza>=0.85)}>
+                  {Math.round(f.confianza*100)}% {f.confianza>=0.85?"✓":"revisar"}
+                </span>
+              </div>
+              {/* Selector de cuenta si confianza baja */}
+              {f.confianza < 0.85 && (
+                <select style={{width:"100%",marginTop:8,padding:"6px 8px",fontSize:12,
+                  border:"1px solid var(--border)",borderRadius:8,
+                  background:"var(--surface-2)",color:"var(--text)",fontFamily:"inherit"}}
+                  value={f.cuenta}
+                  onChange={e=>{
+                    const updated=[...facturas];
+                    const meta=window.findCuenta(e.target.value)||{nombre:e.target.value};
+                    updated[i]={...updated[i],cuenta:e.target.value,nombreCuenta:meta.nombre,confianza:1};
+                    setFacturas(updated);
+                  }}>
+                  {window.CATALOGO_GASTOS.filter(c=>c.grupo!=="Activo").map(c=>(
+                    <option key={c.cuenta} value={c.cuenta}>{c.cuenta} · {c.nombre}</option>
+                  ))}
+                </select>
+              )}
+            </>
+          ) : (
+            <div className="muted" style={{fontSize:12}}>Archivo adjunto (no XML)</div>
+          )}
+        </div>
+      ))}
+
+      {facturas.length > 0 && (
+        <>
+          <div style={{marginBottom:12}}>
+            <span style={labelStyle}>Concepto del reembolso</span>
+            <input style={{width:"100%",padding:"8px 10px",fontSize:13,
+              border:"1px solid var(--border)",borderRadius:8,
+              background:"var(--surface-2)",color:"var(--text)",
+              fontFamily:"inherit",boxSizing:"border-box"}}
+              placeholder="Descripción breve del gasto…"
+              value={concepto} onChange={e=>setConcepto(e.target.value)}/>
+          </div>
+          <div style={{padding:"10px 14px",background:"var(--surface-2,rgba(255,255,255,.06))",
+            borderRadius:8,marginBottom:12,display:"flex",justifyContent:"space-between"}}>
+            <span style={{fontSize:13}}>Total a reembolsar</span>
+            <strong className="mono">{window.fmtMXN(facturas.reduce((a,f)=>a+(f.total||0),0))}</strong>
+          </div>
+          <button className="btn primary"
+            style={{width:"100%",justifyContent:"center",opacity:enviado?0.5:1,
+              pointerEvents:enviado?"none":"auto"}}
+            onClick={enviarReembolso}>
+            <Icon name="arrowR" size={14}/> {enviado ? "Enviado ✓" : "Enviar como reembolso"}
+          </button>
+          <button className="btn" style={{width:"100%",justifyContent:"center",marginTop:8}}
+            onClick={() => setFacturas([])}>
+            Limpiar
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function MobileApp({ userId, onLogout, setPage }) {
   const [tab, setTab] = React.useState("home");
   const u = window.findUser(userId);
   const c = window.findCentro(u.centro);
   const mine = window.SOLICITUDES.filter(s => s.usuario === userId);
   const saldo = mine.filter(s => s.tipo === "anticipo" && s.saldoPendiente > 0).reduce((a,s)=>a+s.saldoPendiente, 0);
+
+  const goToPage = (page) => {
+    if (setPage) {
+      // Salir de vista móvil y navegar a la página del desktop/tablet
+      setPage(page);
+    }
+  };
 
   return (
     <div className="phone-wrap">
@@ -5591,19 +5814,23 @@ function MobileApp({ userId, onLogout }) {
               </div>
 
               <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14}}>
-                <div className="m-card" style={{textAlign:"center", margin:0}}>
+                <div className="m-card" style={{textAlign:"center", margin:0, cursor:"pointer"}}
+                  onClick={() => goToPage("anticipos")}>
                   <div style={{width:36,height:36,borderRadius:10,background:"var(--accent-soft)",margin:"0 auto 8px",display:"grid",placeItems:"center",color:"var(--accent)"}}><Icon name="plus" size={18}/></div>
                   <div style={{fontSize:12, fontWeight:500}}>Anticipo</div>
                 </div>
-                <div className="m-card" style={{textAlign:"center", margin:0}}>
+                <div className="m-card" style={{textAlign:"center", margin:0, cursor:"pointer"}}
+                  onClick={() => goToPage("comprobaciones")}>
                   <div style={{width:36,height:36,borderRadius:10,background:"var(--info-soft)",margin:"0 auto 8px",display:"grid",placeItems:"center",color:"var(--info)"}}><Icon name="receipt" size={18}/></div>
                   <div style={{fontSize:12, fontWeight:500}}>Comprobar</div>
                 </div>
-                <div className="m-card" style={{textAlign:"center", margin:0}}>
+                <div className="m-card" style={{textAlign:"center", margin:0, cursor:"pointer"}}
+                  onClick={() => goToPage("reembolsos")}>
                   <div style={{width:36,height:36,borderRadius:10,background:"var(--warn-soft)",margin:"0 auto 8px",display:"grid",placeItems:"center",color:"var(--warn)"}}><Icon name="refund" size={18}/></div>
                   <div style={{fontSize:12, fontWeight:500}}>Reembolso</div>
                 </div>
-                <div className="m-card" style={{textAlign:"center", margin:0}}>
+                <div className="m-card" style={{textAlign:"center", margin:0, cursor:"pointer"}}
+                  onClick={() => setTab("scan")}>
                   <div style={{width:36,height:36,borderRadius:10,background:"var(--success-soft)",margin:"0 auto 8px",display:"grid",placeItems:"center",color:"var(--success)"}}><Icon name="upload" size={18}/></div>
                   <div style={{fontSize:12, fontWeight:500}}>Subir XML</div>
                 </div>
@@ -5630,32 +5857,10 @@ function MobileApp({ userId, onLogout }) {
 
           {tab === "scan" && (
             <div className="m-pad">
-              <h2 style={{fontFamily:"var(--f-display)", fontSize:22, fontWeight:600, letterSpacing:"-0.02em", marginTop:0}}>Subir factura</h2>
-              <div className="dropzone" style={{padding:30}}>
-                <div className="dropzone-icon"><Icon name="upload" size={20}/></div>
-                <div className="dropzone-title">Toma foto o sube XML+PDF</div>
-                <div className="dropzone-sub">Detectamos RFC, monto e IVA</div>
-                <div style={{display:"flex", gap:8, justifyContent:"center", marginTop:14}}>
-                  <button className="btn primary sm">📷 Cámara</button>
-                  <button className="btn sm">Archivos</button>
-                </div>
-              </div>
-
-              <div style={{marginTop:14}}>
-                <div className="file-chip" style={{marginBottom:8}}>
-                  <div className="icon-box">XML</div>
-                  <div className="meta"><div className="name">factura_pemex.xml</div><div className="sz">UUID AA92-4F1B</div></div>
-                  <Icon name="check" size={14} style={{color:"var(--success)"}}/>
-                </div>
-                <div className="m-card">
-                  <div style={{fontSize:11, textTransform:"uppercase", letterSpacing:"0.06em", color:"var(--text-3)", marginBottom:8, fontWeight:600}}>Detectado</div>
-                  <div className="spread" style={{padding:"4px 0"}}><span className="muted">Emisor</span><strong style={{fontSize:13}}>Pemex Estación 4421</strong></div>
-                  <div className="spread" style={{padding:"4px 0"}}><span className="muted">Total</span><strong className="mono">$1,259.76</strong></div>
-                  <div className="spread" style={{padding:"4px 0"}}><span className="muted">IVA</span><strong className="mono">$173.76</strong></div>
-                  <div className="spread" style={{padding:"4px 0"}}><span className="muted">Cuenta sugerida</span><strong style={{fontSize:13}}>Gasolina · 6120800001</strong></div>
-                </div>
-                <button className="btn primary" style={{width:"100%", justifyContent:"center", marginTop:12}}>Confirmar y agregar</button>
-              </div>
+              <h2 style={{fontFamily:"var(--f-display)", fontSize:22, fontWeight:600, letterSpacing:"-0.02em", marginTop:0}}>
+                Subir factura
+              </h2>
+              <MobileScan userId={userId} onDone={() => setTab("home")}/>
             </div>
           )}
 
@@ -6146,9 +6351,7 @@ function ThemePanel({ theme, onTheme, accent, onAccent, density, onDensity, isAd
         <div style={rowStyle}>
           <button style={chipStyle(density==="comfortable")} onClick={()=>onDensity("comfortable")}>Cómoda</button>
           <button style={chipStyle(density==="compact")}     onClick={()=>onDensity("compact")}>Compacta</button>
-          {(role==="usuario" || role==="contador") && (
-            <button style={chipStyle(density==="mobile")} onClick={()=>onDensity("mobile")}>📱 Móvil</button>
-          )}
+          <button style={chipStyle(density==="mobile")} onClick={()=>onDensity("mobile")}>📱 Móvil</button>
         </div>
 
         {isAdmin && onRole && (
@@ -6410,6 +6613,11 @@ function App() {
     return <LoginScreen onLogin={handleLogin}/>;
   }
 
+  const setPageFromMobile = (page) => {
+    setTweak("density", "comfortable");
+    setPage(page);
+  };
+
   // Rol SIEMPRE viene del usuario logueado — no se puede cambiar desde la UI
   const role   = session.user.rol;   // "usuario" | "gerente" | "tesoreria" | "admin"
   const userId = session.user.id;
@@ -6444,7 +6652,7 @@ function App() {
   return (
     <>
       {isMobileUserView ? (
-        <MobileApp userId={userId} onLogout={handleLogout}/>
+        <MobileApp userId={userId} onLogout={handleLogout} setPage={setPageFromMobile}/>
       ) : (
         <div className="app">
           <Sidebar role={activeRole} page={activePage} setPage={setPage} onLogout={handleLogout}/>
