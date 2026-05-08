@@ -1088,7 +1088,7 @@ table.t {
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
 <script type="text/babel">
 
-// ═══════════════ data ═══════════════
+// ═══ data ═══
 // Viáticos — datos seed
 const CENTROS = [
   { id: "100020009", nombre: "VANES",          depto: "Operaciones" },
@@ -1216,7 +1216,7 @@ Object.assign(window, {
 });
 
 
-// ═══════════════ icons ═══════════════
+// ═══ icons ═══
 // Viáticos — Icons (inline SVG, line style, 16-20px)
 const Icon = ({ name, size = 16, ...props }) => {
   const s = size;
@@ -1261,7 +1261,7 @@ const Icon = ({ name, size = 16, ...props }) => {
 window.Icon = Icon;
 
 
-// ═══════════════ tweaks-panel ═══════════════
+// ═══ tweaks-panel ═══
 
 // tweaks-panel.jsx
 // Reusable Tweaks shell + form-control helpers.
@@ -1832,7 +1832,7 @@ Object.assign(window, {
 });
 
 
-// ═══════════════ shell ═══════════════
+// ═══ shell ═══
 // Viáticos — Shell components: sidebar, topbar, role switcher
 
 const NAV = {
@@ -2036,7 +2036,7 @@ function Spark({ values, color = "var(--accent)" }) {
 Object.assign(window, { Sidebar, Topbar, Stepper, StatusBadge, TipoBadge, Spark, NAV, ROLE_LABELS, ROLE_USERS });
 
 
-// ═══════════════ user-pages ═══════════════
+// ═══ user-pages ═══
 // Viáticos — User-facing pages
 
 function UserDashboard({ userId, openDetail, setPage }) {
@@ -3062,7 +3062,7 @@ function Reembolsos({ userId }) {
 Object.assign(window, { UserDashboard, SolicitarAnticipo, NuevaComprobacion, Reembolsos });
 
 
-// ═══════════════ role-pages ═══════════════
+// ═══ role-pages ═══
 // Viáticos — Gerente, Tesorería, Admin pages
 
 function GerenteBandeja({ openDetail }) {
@@ -4333,7 +4333,7 @@ function DetalleModal({ id, onClose }) {
 Object.assign(window, { GerenteBandeja, TesoreriaBandeja, AdminUsuarios, AdminCentros, AdminCatalogo, Reportes, DetalleModal, EditModal });
 
 
-// ═══════════════ mobile ═══════════════
+// ═══ mobile ═══
 // Viáticos — Mobile (usuario en celular)
 
 function MobileApp({ userId, onLogout }) {
@@ -4552,7 +4552,7 @@ function PerfilPage({ userId, onLogout }) {
 window.PerfilPage = PerfilPage;
 
 
-// ═══════════════ app ═══════════════
+// ═══ app ═══
 // Viáticos — Main app + tweaks integration
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
@@ -4816,6 +4816,105 @@ function AdminAjustes() {
           <div className="spread" style={{padding:"8px 0"}}><span style={{fontSize:13}}>Reporte semanal a tesorería</span><input type="checkbox" defaultChecked/></div>
           <div className="spread" style={{padding:"8px 0"}}><span style={{fontSize:13}}>Alerta saldo pendiente &gt;60 días</span><input type="checkbox" defaultChecked/></div>
         </div>
+      </div>
+    </>
+  );
+}
+
+
+// ── ThemePanel — panel de ajustes siempre funcional ─────────────────────────
+function ThemePanel({ theme, onTheme, accent, onAccent, density, onDensity, isAdmin, role, onRole }) {
+  const [open, setOpen] = React.useState(false);
+
+  const ACCENTS_UI = [
+    { key:"lime",    color:"#c5f24d", label:"Verde" },
+    { key:"cyan",    color:"#5ec8e6", label:"Cyan"  },
+    { key:"magenta", color:"#e858a6", label:"Rosa"  },
+    { key:"amber",   color:"#f3b95a", label:"Ámbar" },
+  ];
+  const ROLES_UI = [
+    {value:"usuario",   label:"Usuario"},
+    {value:"gerente",   label:"Gerente"},
+    {value:"tesoreria", label:"Tesorería"},
+    {value:"admin",     label:"Admin"},
+  ];
+
+  const panelStyle = {
+    position:"fixed", bottom:72, right:16, zIndex:500,
+    width:220, background:"var(--surface-1,#1c1e22)",
+    border:"1px solid var(--border)", borderRadius:12,
+    padding:"14px 16px", boxShadow:"0 8px 32px rgba(0,0,0,.4)",
+    display: open ? "block" : "none",
+  };
+  const btnStyle = {
+    position:"fixed", bottom:16, right:16, zIndex:500,
+    width:44, height:44, borderRadius:"50%",
+    background:"var(--surface-2,rgba(255,255,255,.1))",
+    border:"1px solid var(--border)",
+    cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
+    fontSize:20, boxShadow:"0 4px 12px rgba(0,0,0,.3)",
+  };
+  const labelStyle = {
+    fontSize:10, fontWeight:600, letterSpacing:"0.08em",
+    textTransform:"uppercase", color:"var(--text-3,rgba(255,255,255,.4))",
+    marginBottom:8, display:"block",
+  };
+  const rowStyle = { display:"flex", gap:6, marginBottom:14, flexWrap:"wrap" };
+  const chipStyle = (active) => ({
+    padding:"4px 10px", borderRadius:6, fontSize:12, cursor:"pointer",
+    border: active ? "1.5px solid var(--accent,#c5f24d)" : "1px solid var(--border)",
+    background: active ? "var(--accent-soft,rgba(197,242,77,.15))" : "transparent",
+    color: active ? "var(--accent,#c5f24d)" : "var(--text-2,rgba(255,255,255,.6))",
+    fontFamily:"inherit",
+  });
+
+  return (
+    <>
+      <button style={btnStyle} onClick={() => setOpen(o=>!o)} title="Ajustes de apariencia">
+        ⚙
+      </button>
+      <div style={panelStyle}>
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14}}>
+          <span style={{fontSize:13, fontWeight:600}}>Ajustes</span>
+          <button onClick={()=>setOpen(false)}
+            style={{background:"none",border:"none",color:"var(--text-3,rgba(255,255,255,.4))",cursor:"pointer",fontSize:18,lineHeight:1,padding:0}}>×</button>
+        </div>
+
+        <span style={labelStyle}>Tema</span>
+        <div style={rowStyle}>
+          <button style={chipStyle(theme==="dark")}  onClick={()=>onTheme("dark")}>🌙 Oscuro</button>
+          <button style={chipStyle(theme==="light")} onClick={()=>onTheme("light")}>☀ Claro</button>
+        </div>
+
+        <span style={labelStyle}>Color</span>
+        <div style={{...rowStyle, gap:8}}>
+          {ACCENTS_UI.map(a=>(
+            <button key={a.key} onClick={()=>onAccent(a.key)} title={a.label}
+              style={{width:28,height:28,borderRadius:"50%",background:a.color,cursor:"pointer",
+                border: accent===a.key ? "3px solid white" : "2px solid transparent",
+                boxShadow: accent===a.key ? "0 0 0 2px "+a.color : "none"}}>
+            </button>
+          ))}
+        </div>
+
+        <span style={labelStyle}>Densidad</span>
+        <div style={rowStyle}>
+          <button style={chipStyle(density==="comfortable")} onClick={()=>onDensity("comfortable")}>Cómoda</button>
+          <button style={chipStyle(density==="compact")}     onClick={()=>onDensity("compact")}>Compacta</button>
+        </div>
+
+        {isAdmin && onRole && (
+          <>
+            <span style={labelStyle}>Ver como rol</span>
+            <div style={rowStyle}>
+              {ROLES_UI.map(r=>(
+                <button key={r.value} style={chipStyle(role===r.value)} onClick={()=>onRole(r.value)}>
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </>
   );
@@ -5112,28 +5211,13 @@ function App() {
       {detailId && <DetalleModal id={detailId} onClose={() => setDetailId(null)}/>}
 
       {/* TweaksPanel: siempre en DEV_MODE, solo admin en producción */}
-      {(isAdmin || DEV_MODE) && (
-        <window.TweaksPanel title={isAdmin ? "Tweaks · Admin" : "Tweaks"}>
-          <window.TweakSection title="Apariencia">
-            <window.TweakRadio label="Tema" value={t.theme} onChange={v=>setTweak("theme",v)}
-              options={[{value:"dark",label:"Oscuro"},{value:"light",label:"Claro"}]}/>
-            <window.TweakColor label="Color primario" value={t.accent} onChange={v=>setTweak("accent",v)}
-              options={[{value:"lime",color:"#c5f24d"},{value:"cyan",color:"#5ec8e6"},{value:"magenta",color:"#e858a6"},{value:"amber",color:"#f3b95a"}]}/>
-            <window.TweakSelect label="Densidad" value={t.density} onChange={v=>setTweak("density",v)}
-              options={[{value:"comfortable",label:"Cómoda"},{value:"compact",label:"Compacta"}]}/>
-          </window.TweakSection>
-          {isAdmin && (
-            <window.TweakSection title="Ver como rol (admin)">
-              <window.TweakSelect label="Perspectiva" value={t.role||role} onChange={handleSetRole}
-                options={[{value:"usuario",label:"Usuario"},{value:"gerente",label:"Gerente"},
-                  {value:"tesoreria",label:"Tesorería"},{value:"admin",label:"Admin"}]}/>
-            </window.TweakSection>
-          )}
-          <window.TweakSection title="Reportes">
-            <window.TweakToggle label="Reportes avanzados" value={t.showAdvanced} onChange={v=>setTweak("showAdvanced",v)}/>
-          </window.TweakSection>
-        </window.TweaksPanel>
-      )}
+      <ThemePanel
+        theme={t.theme} onTheme={v=>setTweak("theme",v)}
+        accent={t.accent} onAccent={v=>setTweak("accent",v)}
+        density={t.density} onDensity={v=>setTweak("density",v)}
+        isAdmin={isAdmin}
+        role={t.role||role} onRole={isAdmin ? handleSetRole : null}
+      />
     </>
   );
 }
