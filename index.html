@@ -4200,113 +4200,187 @@ function DetalleModal({ id, onClose }) {
   const dates = {
     solicitado: s.fecha,
     autorizado: ["autorizado","liberado","comprobado","parcial"].includes(s.status) ? new Date(s.fecha.getTime() + 86400000) : null,
-    liberado: ["liberado","comprobado","parcial"].includes(s.status) ? new Date(s.fecha.getTime() + 86400000*2) : null,
+    liberado:   ["liberado","comprobado","parcial"].includes(s.status) ? new Date(s.fecha.getTime() + 86400000*2) : null,
     comprobado: s.status === "comprobado" ? new Date(s.fecha.getTime() + 86400000*5) : null,
   };
 
+  // Unificar fuentes de desglose: CFDI > items > desglose
+  const lineas = s.cfdi && s.cfdi.length > 0
+    ? s.cfdi.map(cf => ({
+        cuenta: cf.cuenta,
+        desc:   cf.concepto || cf.emisor || "—",
+        monto:  cf.total || 0,
+        uuid:   cf.uuid || cf.uuidFull || null,
+        emisor: cf.emisor || null,
+        iva:    cf.iva || 0,
+        subtotal: cf.subtotal || 0,
+        isCFDI: true,
+      }))
+    : (s.items || s.desglose || []).map(it => ({
+        cuenta: it.cuenta || it.code,
+        desc:   it.desc || it.nombre || it.concepto || "—",
+        monto:  it.amt || it.monto || it.total || 0,
+        isCFDI: false,
+      }));
+
+  // Agrupar por cuenta para el resumen de categorías
+  const porCuenta = {};
+  lineas.forEach(l => {
+    const key = l.cuenta || "6121200001";
+    if (!porCuenta[key]) porCuenta[key] = { monto: 0, items: [] };
+    porCuenta[key].monto += l.monto;
+    porCuenta[key].items.push(l);
+  });
+  const totalLineas = lineas.reduce((a, l) => a + l.monto, 0);
+
+  // Exportar resumen como CSV
+  const exportarResumen = () => {
+    const rows = [["Cuenta","Tipo de gasto","Descripción","Monto","UUID/Referencia"]];
+    lineas.forEach(l => {
+      const meta = window.findCuenta(l.cuenta) || { nombre: "—" };
+      rows.push([l.cuenta || "—", meta.nombre, l.desc, l.monto, l.uuid || "—"]);
+    });
+    rows.push(["","","TOTAL", totalLineas, ""]);
+    const csv = rows.map(r => r.map(x => '"' + String(x).replace(/"/g, '""') + '"').join(",")).join('
+');
+    const a = document.createElement("a");
+    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
+    a.download = s.id + "_desglose.csv";
+    a.click();
+  };
+
+  // Íconos por grupo de gasto
+  const iconoGrupo = { Transporte:"plane", Hospedaje:"calendar", Alimentos:"sparkle", Impuestos:"receipt", Otros:"file" };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={e=>e.stopPropagation()}>
+      <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:720}}>
+        {/* Header */}
         <div className="modal-head">
           <div>
             <h2 className="modal-title">{s.id}</h2>
             <div className="card-sub" style={{marginTop:2}}>{s.concepto}</div>
           </div>
           <div className="row">
+            <TipoBadge tipo={s.tipo}/>
             <StatusBadge status={s.status}/>
             <div className="icon-btn" onClick={onClose}><Icon name="x" size={14}/></div>
           </div>
         </div>
+
         <div className="modal-body">
           <Stepper status={s.status} dates={dates}/>
 
-          <div className="form-grid cols-3" style={{marginTop:24}}>
+          {/* Info básica */}
+          <div className="form-grid cols-3" style={{marginTop:20}}>
             <div className="field"><label>Solicitante</label>
-              <div className="row"><div className="avatar sm">{u.iniciales}</div><div><div style={{fontSize:13}}>{u.nombre}</div><div className="muted mono" style={{fontSize:11}}>{u.correo}</div></div></div>
-            </div>
-            <div className="field"><label>Centro de beneficio</label><div>{c.nombre}<div className="muted mono" style={{fontSize:11}}>{c.id} · {c.depto}</div></div></div>
-            <div className="field"><label>Tipo</label><div><TipoBadge tipo={s.tipo}/> <span style={{textTransform:"capitalize", marginLeft:4}}>{s.tipo}</span></div></div>
-            <div className="field"><label>Monto</label><div className="mono" style={{fontSize:18, fontWeight:600}}>{window.fmtMXN(s.monto)}</div></div>
-            <div className="field"><label>Fecha solicitud</label><div className="mono">{window.fmtFecha(s.fecha)}</div></div>
-            <div className="field"><label>Saldo pendiente</label><div className="mono" style={{fontSize:16, fontWeight:600, color:s.saldoPendiente>0?"var(--warn)":"var(--success)"}}>{s.saldoPendiente !== undefined ? window.fmtMXN(s.saldoPendiente) : "—"}</div></div>
-          </div>
-
-          <div className="divider"></div>
-          <h3 className="card-title" style={{fontSize:14, marginBottom:12}}>Bitácora</h3>
-          <div className="timeline">
-            <div className="tl-row">
-              <div className="tl-dot done"><Icon name="check" size={11}/></div>
-              <div className="tl-content">
-                <div className="tl-title">{u.nombre} solicitó el anticipo</div>
-                <div className="tl-meta">{window.fmtFecha(s.fecha)} · 09:42</div>
-                <div className="tl-note">Reuniones con cliente. 3 días de viaje, vuelo redondo y hospedaje 2 noches.</div>
-              </div>
-            </div>
-            {dates.autorizado && (
-              <div className="tl-row">
-                <div className="tl-dot done"><Icon name="check" size={11}/></div>
-                <div className="tl-content">
-                  <div className="tl-title">Mariana Téllez autorizó</div>
-                  <div className="tl-meta">{window.fmtFecha(dates.autorizado)} · 11:18</div>
+              <div className="row">
+                <div className="avatar sm">{u.iniciales}</div>
+                <div>
+                  <div style={{fontSize:13}}>{u.nombre}</div>
+                  <div className="muted mono" style={{fontSize:11}}>{u.correo}</div>
                 </div>
               </div>
-            )}
-            {dates.liberado && (
-              <div className="tl-row">
-                <div className="tl-dot done"><Icon name="check" size={11}/></div>
-                <div className="tl-content">
-                  <div className="tl-title">Tesorería liberó fondos · SPEI</div>
-                  <div className="tl-meta">{window.fmtFecha(dates.liberado)} · 16:05 · ref. SPEI 4471882</div>
-                </div>
-              </div>
-            )}
-            {!dates.autorizado && (
-              <div className="tl-row">
-                <div className="tl-dot">2</div>
-                <div className="tl-content"><div className="tl-title muted">Esperando autorización gerencial</div></div>
-              </div>
-            )}
+            </div>
+            <div className="field"><label>Centro de beneficio</label>
+              <div>{c.nombre}<div className="muted mono" style={{fontSize:11}}>{c.id} · {c.depto}</div></div>
+            </div>
+            <div className="field"><label>Monto total</label>
+              <div className="mono" style={{fontSize:20,fontWeight:700}}>{window.fmtMXN(s.monto)}</div>
+            </div>
           </div>
 
-          {/* CFDI adjuntos — visible para gerentes y tesorería */}
-          {s.cfdi && s.cfdi.length > 0 && (
+          {/* ── Resumen por categoría de gasto ── */}
+          {lineas.length > 0 && (
             <>
               <div className="divider"></div>
-              <h3 className="card-title" style={{fontSize:14, marginBottom:12}}>
-                Comprobantes fiscales adjuntos
-                <span className="muted" style={{fontWeight:400, marginLeft:8, fontSize:12}}>
-                  {s.cfdi.length} factura{s.cfdi.length>1?"s":""} · total: <strong className="mono">{window.fmtMXN(s.cfdi.reduce((a,c)=>a+(c.total||0),0))}</strong>
-                </span>
-              </h3>
-              <div className="table-wrap" style={{border:"none", padding:0}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                <h3 className="card-title" style={{fontSize:14,margin:0}}>
+                  Desglose de gastos
+                  <span className="muted" style={{fontWeight:400,fontSize:12,marginLeft:8}}>
+                    {lineas.length} concepto{lineas.length>1?"s":""}
+                  </span>
+                </h3>
+                <button className="btn sm" onClick={exportarResumen}>
+                  <Icon name="download" size={12}/> Descargar CSV
+                </button>
+              </div>
+
+              {/* Tarjetas por categoría */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:10,marginBottom:16}}>
+                {Object.entries(porCuenta).map(([cuentaKey, data]) => {
+                  const meta = window.findCuenta(cuentaKey) || {nombre:cuentaKey,grupo:"Otros"};
+                  const pct = totalLineas > 0 ? (data.monto/totalLineas*100) : 0;
+                  const icon = iconoGrupo[meta.grupo] || "file";
+                  return (
+                    <div key={cuentaKey} style={{
+                      background:"var(--surface-2,rgba(255,255,255,.05))",
+                      borderRadius:"var(--r-md,8px)", padding:"12px 14px",
+                      border:"1px solid var(--border)",
+                    }}>
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+                        <Icon name={icon} size={13} style={{color:"var(--accent)"}}/>
+                        <span style={{fontSize:11,fontWeight:600,color:"var(--text-2,rgba(255,255,255,.6))"}}>{meta.nombre}</span>
+                      </div>
+                      <div style={{fontSize:18,fontWeight:700,marginBottom:4}}>{window.fmtMXN(data.monto)}</div>
+                      <div style={{height:3,background:"var(--border)",borderRadius:2,overflow:"hidden"}}>
+                        <div style={{height:"100%",width:pct+"%",background:"var(--accent)",borderRadius:2}}></div>
+                      </div>
+                      <div style={{fontSize:10,color:"var(--text-3,rgba(255,255,255,.35))",marginTop:4}}>
+                        {pct.toFixed(0)}% del total · <span className="mono muted">{cuentaKey}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Tabla detallada de líneas */}
+              <div className="table-wrap" style={{border:"none",padding:0}}>
                 <table className="t">
                   <thead>
-                    <tr><th>UUID</th><th>Emisor</th><th>Concepto</th><th className="right">Subtotal</th><th className="right">IVA</th><th className="right">Total</th><th>Cuenta</th></tr>
+                    <tr>
+                      <th>Tipo de gasto</th>
+                      <th>Descripción / Emisor</th>
+                      {lineas.some(l=>l.isCFDI) && <th style={{width:130}}>UUID</th>}
+                      {lineas.some(l=>l.iva) && <th className="right">IVA</th>}
+                      <th className="right">Importe</th>
+                    </tr>
                   </thead>
                   <tbody>
-                    {s.cfdi.map((c, i) => {
-                      const meta = window.findCuenta(c.cuenta) || {nombre: c.cuenta || "—", cuenta: c.cuenta || ""};
+                    {lineas.map((l, i) => {
+                      const meta = window.findCuenta(l.cuenta) || {nombre:l.cuenta||"—",cuenta:l.cuenta||""};
                       return (
                         <tr key={i}>
-                          <td className="id-cell" style={{fontSize:10}}>{c.uuid || c.uuidFull || "—"}</td>
-                          <td style={{fontSize:12, maxWidth:120, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{c.emisor || "—"}</td>
-                          <td className="muted" style={{fontSize:12, maxWidth:160, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{c.concepto || "—"}</td>
-                          <td className="num">{window.fmtMXN(c.subtotal||0)}</td>
-                          <td className="num">{window.fmtMXN(c.iva||0)}</td>
-                          <td className="num" style={{fontWeight:600}}>{window.fmtMXN(c.total||0)}</td>
                           <td>
-                            <div style={{fontSize:12}}>{meta.nombre}</div>
+                            <div style={{fontSize:12,fontWeight:500}}>{meta.nombre}</div>
                             <div className="mono muted" style={{fontSize:10}}>{meta.cuenta}</div>
                           </td>
+                          <td style={{fontSize:12}}>
+                            <div>{l.desc}</div>
+                            {l.emisor && l.emisor !== l.desc && (
+                              <div className="muted" style={{fontSize:11}}>{l.emisor}</div>
+                            )}
+                          </td>
+                          {lineas.some(ln=>ln.isCFDI) && (
+                            <td className="mono muted" style={{fontSize:10}}>{l.uuid || "—"}</td>
+                          )}
+                          {lineas.some(ln=>ln.iva) && (
+                            <td className="num muted" style={{fontSize:12}}>{l.iva ? window.fmtMXN(l.iva) : "—"}</td>
+                          )}
+                          <td className="num" style={{fontWeight:600}}>{window.fmtMXN(l.monto)}</td>
                         </tr>
                       );
                     })}
                   </tbody>
                   <tfoot>
                     <tr>
-                      <td colSpan={5} style={{textAlign:"right", padding:"8px 10px", fontWeight:600, borderTop:"1px solid var(--border)"}}>Total facturas</td>
-                      <td className="num" style={{fontWeight:600, borderTop:"1px solid var(--border)"}}>{window.fmtMXN(s.cfdi.reduce((a,c)=>a+(c.total||0),0))}</td>
-                      <td style={{borderTop:"1px solid var(--border)"}}></td>
+                      <td colSpan={lineas.some(l=>l.isCFDI) ? (lineas.some(l=>l.iva)?4:3) : (lineas.some(l=>l.iva)?3:2)}
+                        style={{textAlign:"right",padding:"8px 10px",fontWeight:600,borderTop:"1px solid var(--border)"}}>
+                        Total
+                      </td>
+                      <td className="num" style={{fontWeight:700,fontSize:15,borderTop:"1px solid var(--border)"}}>
+                        {window.fmtMXN(totalLineas)}
+                      </td>
                     </tr>
                   </tfoot>
                 </table>
@@ -4314,16 +4388,109 @@ function DetalleModal({ id, onClose }) {
             </>
           )}
 
-          {/* Si no tiene CFDI estructurado pero tiene comprobantes */}
-          {(!s.cfdi || s.cfdi.length===0) && s.comprobantes > 0 && (
-            <>
-              <div className="divider"></div>
-              <div style={{padding:"10px 14px", background:"var(--surface-2)", borderRadius:"var(--r-md)", fontSize:13, color:"var(--text-2)"}}>
-                <Icon name="file" size={14} style={{marginRight:6, verticalAlign:"middle"}}/> 
-                {s.comprobantes} archivo{s.comprobantes>1?"s adjuntos":""} adjunto{s.comprobantes>1?"s":""} — el detalle de facturas se ve al abrir el XML desde el sistema de archivos
+          {/* ── Archivos adjuntos ── */}
+          {(() => {
+            const archivos = s.cfdi && s.cfdi.length > 0
+              ? s.cfdi.map((cf,i) => ({ nombre: (cf.emisor||"Factura")+"_"+i+".xml", uuid: cf.uuid, tipo:"XML", total: cf.total }))
+              : s.comprobantes > 0
+                ? Array.from({length: s.comprobantes}, (_,i) => ({ nombre:"comprobante_"+(i+1)+".xml", tipo:"XML", total:null }))
+                : [];
+
+            if (!archivos.length) return null;
+            return (
+              <>
+                <div className="divider"></div>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                  <h3 className="card-title" style={{fontSize:14,margin:0}}>
+                    Archivos adjuntos
+                    <span className="muted" style={{fontWeight:400,fontSize:12,marginLeft:8}}>{archivos.length} archivo{archivos.length>1?"s":""}</span>
+                  </h3>
+                </div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                  {archivos.map((f,i) => (
+                    <button key={i}
+                      onClick={() => {
+                        // En producción aquí iría el link real al archivo almacenado
+                        // Por ahora generamos un XML de muestra descargable
+                        const xmlContent = f.uuid
+                          ? '<?xml version="1.0"?><Comprobante UUID="'+f.uuid+'" Emisor="'+f.nombre+'" Total="'+(f.total||0)+'"/>'
+                          : '<?xml version="1.0"?><Comprobante Folio="'+s.id+'" Archivo="'+(i+1)+'"/>';
+                        const a = document.createElement("a");
+                        a.href = "data:application/xml;charset=utf-8," + encodeURIComponent(xmlContent);
+                        a.download = s.id + "_" + f.nombre;
+                        a.click();
+                      }}
+                      style={{
+                        display:"flex",alignItems:"center",gap:8,
+                        padding:"8px 12px",borderRadius:"var(--r-md,8px)",
+                        border:"1px solid var(--border)",background:"var(--surface-2,rgba(255,255,255,.05))",
+                        cursor:"pointer",fontFamily:"inherit",color:"var(--text)",
+                        fontSize:12,transition:"all .15s",
+                      }}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor="var(--accent)"}
+                      onMouseLeave={e=>e.currentTarget.style.borderColor="var(--border)"}
+                    >
+                      <span style={{
+                        background:"var(--accent-soft,rgba(197,242,77,.15))",color:"var(--accent)",
+                        fontWeight:700,fontSize:10,padding:"2px 5px",borderRadius:4,fontFamily:"monospace"
+                      }}>{f.tipo}</span>
+                      <span style={{maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.nombre}</span>
+                      {f.total && <span className="muted mono" style={{fontSize:11}}>{window.fmtMXN(f.total)}</span>}
+                      <Icon name="download" size={12} style={{color:"var(--accent)",marginLeft:2}}/>
+                    </button>
+                  ))}
+                </div>
+                <div style={{fontSize:11,color:"var(--text-3,rgba(255,255,255,.35))",marginTop:8}}>
+                  En producción estos archivos se descargan del servidor de almacenamiento.
+                </div>
+              </>
+            );
+          })()}
+
+          {/* ── Bitácora ── */}
+          <div className="divider"></div>
+          <h3 className="card-title" style={{fontSize:14,marginBottom:12}}>Bitácora</h3>
+          <div className="timeline">
+            <div className="tl-row">
+              <div className="tl-dot done"><Icon name="check" size={11}/></div>
+              <div className="tl-content">
+                <div className="tl-title">{u.nombre} creó la solicitud</div>
+                <div className="tl-meta">{window.fmtFecha(s.fecha)}</div>
               </div>
-            </>
-          )}
+            </div>
+            {dates.autorizado ? (
+              <div className="tl-row">
+                <div className="tl-dot done"><Icon name="check" size={11}/></div>
+                <div className="tl-content">
+                  <div className="tl-title">Gerente autorizó</div>
+                  <div className="tl-meta">{window.fmtFecha(dates.autorizado)}</div>
+                </div>
+              </div>
+            ) : (
+              <div className="tl-row">
+                <div className="tl-dot">2</div>
+                <div className="tl-content"><div className="tl-title muted">Esperando autorización gerencial</div></div>
+              </div>
+            )}
+            {dates.liberado && (
+              <div className="tl-row">
+                <div className="tl-dot done"><Icon name="check" size={11}/></div>
+                <div className="tl-content">
+                  <div className="tl-title">Tesorería liberó fondos</div>
+                  <div className="tl-meta">{window.fmtFecha(dates.liberado)}</div>
+                </div>
+              </div>
+            )}
+            {s.status === "rechazado" && s.motivoRechazo && (
+              <div className="tl-row">
+                <div className="tl-dot" style={{background:"var(--danger)",color:"#fff",border:"none"}}>✕</div>
+                <div className="tl-content">
+                  <div className="tl-title" style={{color:"var(--danger)"}}>Rechazado</div>
+                  <div className="tl-note">{s.motivoRechazo}</div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
