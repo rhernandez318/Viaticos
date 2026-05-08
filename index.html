@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=1280">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Viáticos · Control de gastos · Casa Zapata</title>
 <style>
 /* ============================================
@@ -1113,25 +1113,29 @@ const CATALOGO_GASTOS = [
   { cuenta: "6120800001", nombre: "Gasolina", grupo: "Transporte", icon: "⛽" },
   { cuenta: "6121200001", nombre: "No Deducibles", grupo: "Otros", icon: "—" },
   { cuenta: "6122700001", nombre: "Otros Impuestos (TUA)", grupo: "Impuestos", icon: "%" },
+  // Cuentas de balance para pólizas de anticipo
+  { cuenta: "1111102604", nombre: "Bancos División 4105",        grupo: "Activo",    icon: "🏦", division: "4105" },
+  { cuenta: "1111102622", nombre: "Bancos División 4106",        grupo: "Activo",    icon: "🏦", division: "4106" },
+  { cuenta: "1125",       nombre: "Deudores Diversos / Anticipos a Empleados", grupo: "Activo", icon: "👤" },
 ];
 
 const USUARIOS = [
-  { id: "U001", nombre: "Ana Lucía Reyes",      correo: "ana.reyes@viaticos.mx",     rol: "usuario",    centro: "100020007", gerente: "U101", iniciales: "AR", password: "1234" },
-  { id: "U002", nombre: "Bruno Cárdenas",        correo: "bruno.cardenas@viaticos.mx", rol: "usuario",    centro: "100020007", gerente: "U101", iniciales: "BC", password: "1234" },
-  { id: "U003", nombre: "Camila Ortega",         correo: "camila.ortega@viaticos.mx", rol: "usuario",    centro: "100020010", gerente: "U102", iniciales: "CO", password: "1234" },
-  { id: "U004", nombre: "Diego Hernández",       correo: "diego.hernandez@viaticos.mx", rol: "usuario",  centro: "100020010", gerente: "U102", iniciales: "DH", password: "1234" },
-  { id: "U005", nombre: "Elena Martínez",        correo: "elena.martinez@viaticos.mx", rol: "usuario",   centro: "100020017", gerente: "U103", iniciales: "EM", password: "1234" },
-  { id: "U006", nombre: "Fernando Quiroz",       correo: "fernando.quiroz@viaticos.mx", rol: "usuario",  centro: "100030001", gerente: "U104", iniciales: "FQ", password: "1234" },
-  { id: "U007", nombre: "Gabriela Solís",        correo: "gabriela.solis@viaticos.mx", rol: "usuario",   centro: "100020002", gerente: "U102", iniciales: "GS", password: "1234" },
-  { id: "U008", nombre: "Héctor Pineda",         correo: "hector.pineda@viaticos.mx", rol: "usuario",    centro: "100020008", gerente: "U101", iniciales: "HP", password: "1234" },
-  { id: "U101", nombre: "Mariana Téllez",        correo: "mariana.tellez@viaticos.mx", rol: "gerente",   centro: "100020007", gerente: null,    iniciales: "MT", password: "1234" },
-  { id: "U102", nombre: "Ricardo Lozano",        correo: "ricardo.lozano@viaticos.mx", rol: "gerente",   centro: "100020010", gerente: null,    iniciales: "RL", password: "1234" },
-  { id: "U103", nombre: "Sofía Aragón",          correo: "sofia.aragon@viaticos.mx", rol: "gerente",     centro: "100020017", gerente: null,    iniciales: "SA", password: "1234" },
-  { id: "U104", nombre: "Tomás Beltrán",         correo: "tomas.beltran@viaticos.mx", rol: "gerente",    centro: "100030001", gerente: null,    iniciales: "TB", password: "1234" },
-  { id: "T001", nombre: "Valeria Guzmán",        correo: "valeria.guzman@viaticos.mx", rol: "tesoreria", centro: "100010009", gerente: null,    iniciales: "VG", password: "1234" },
-  { id: "T002", nombre: "Wences Olivares",       correo: "wences.olivares@viaticos.mx", rol: "tesoreria", centro: "100010009", gerente: null,    iniciales: "WO", password: "1234" },
-  { id: "A001", nombre: "Ximena Rojas",          correo: "ximena.rojas@viaticos.mx", rol: "admin",       centro: "100010009", gerente: null,    iniciales: "XR", password: "1234" },
-  { id: "C001", nombre: "Carlos Peñafiel",       correo: "c.penafiel@viaticos.mx",    rol: "contador",    centro: "100010009", gerente: null,    iniciales: "CP", password: "1234" },
+  { id: "U001", nombre: "Ana Lucía Reyes",      correo: "ana.reyes@viaticos.mx",     rol: "usuario",    centro: "100020007", gerente: "U101", iniciales: "AR", password: "1234", division: "4105" },
+  { id: "U002", nombre: "Bruno Cárdenas",        correo: "bruno.cardenas@viaticos.mx", rol: "usuario",    centro: "100020007", gerente: "U101", iniciales: "BC", password: "1234", division: "4105" },
+  { id: "U003", nombre: "Camila Ortega",         correo: "camila.ortega@viaticos.mx", rol: "usuario",    centro: "100020010", gerente: "U102", iniciales: "CO", password: "1234", division: "4106" },
+  { id: "U004", nombre: "Diego Hernández",       correo: "diego.hernandez@viaticos.mx", rol: "usuario",  centro: "100020010", gerente: "U102", iniciales: "DH", password: "1234", division: "4106" },
+  { id: "U005", nombre: "Elena Martínez",        correo: "elena.martinez@viaticos.mx", rol: "usuario",   centro: "100020017", gerente: "U103", iniciales: "EM", password: "1234", division: "4105" },
+  { id: "U006", nombre: "Fernando Quiroz",       correo: "fernando.quiroz@viaticos.mx", rol: "usuario",  centro: "100030001", gerente: "U104", iniciales: "FQ", password: "1234", division: "4106" },
+  { id: "U007", nombre: "Gabriela Solís",        correo: "gabriela.solis@viaticos.mx", rol: "usuario",   centro: "100020002", gerente: "U102", iniciales: "GS", password: "1234", division: "4105" },
+  { id: "U008", nombre: "Héctor Pineda",         correo: "hector.pineda@viaticos.mx", rol: "usuario",    centro: "100020008", gerente: "U101", iniciales: "HP", password: "1234", division: "4106" },
+  { id: "U101", nombre: "Mariana Téllez",        correo: "mariana.tellez@viaticos.mx", rol: "gerente",   centro: "100020007", gerente: null,    iniciales: "MT", password: "1234", division: "4105" },
+  { id: "U102", nombre: "Ricardo Lozano",        correo: "ricardo.lozano@viaticos.mx", rol: "gerente",   centro: "100020010", gerente: null,    iniciales: "RL", password: "1234", division: "4106" },
+  { id: "U103", nombre: "Sofía Aragón",          correo: "sofia.aragon@viaticos.mx", rol: "gerente",     centro: "100020017", gerente: null,    iniciales: "SA", password: "1234", division: "4105" },
+  { id: "U104", nombre: "Tomás Beltrán",         correo: "tomas.beltran@viaticos.mx", rol: "gerente",    centro: "100030001", gerente: null,    iniciales: "TB", password: "1234", division: "4106" },
+  { id: "T001", nombre: "Valeria Guzmán",        correo: "valeria.guzman@viaticos.mx", rol: "tesoreria", centro: "100010009", gerente: null,    iniciales: "VG", password: "1234", division: "4105" },
+  { id: "T002", nombre: "Wences Olivares",       correo: "wences.olivares@viaticos.mx", rol: "tesoreria", centro: "100010009", gerente: null,    iniciales: "WO", password: "1234", division: "4105" },
+  { id: "A001", nombre: "Ximena Rojas",          correo: "ximena.rojas@viaticos.mx", rol: "admin",       centro: "100010009", gerente: null,    iniciales: "XR", password: "1234", division: "4105" },
+  { id: "C001", nombre: "Carlos Peñafiel",       correo: "c.penafiel@viaticos.mx",    rol: "contador",    centro: "100010009", gerente: null,    iniciales: "CP", password: "1234", division: "4105" },
 ];
 
 const HOY = new Date(2026, 4, 7); // 7 mayo 2026
@@ -1288,12 +1292,79 @@ function verifyToken(correo, token) {
 }
 
 
+// ── Cálculo automático de saldo pendiente ──────────────────────────────────
+// Recalcula saldoPendiente de un anticipo sumando sus comprobaciones aprobadas
+// Retorna la cuenta de bancos según la división del usuario
+function getBancosAccount(division) {
+  const entry = CATALOGO_GASTOS.find(c => c.grupo === "Activo" && c.division === division);
+  return entry ? entry.cuenta : (division === "4106" ? "1111102622" : "1111102604");
+}
+
+function calcSaldo(anticipoId) {
+  const ant = SOLICITUDES.find(s => s.id === anticipoId);
+  if (!ant || ant.tipo !== "anticipo") return;
+  const comprobado = SOLICITUDES
+    .filter(s => s.tipo === "comprobacion"
+      && s.anticipoRef === anticipoId
+      && ["autorizado","liberado","comprobado"].includes(s.status))
+    .reduce((a, s) => a + (s.monto || 0), 0);
+  ant.saldoPendiente = Math.max(0, Math.round((ant.monto - comprobado) * 100) / 100);
+  ant.status = ant.saldoPendiente <= 0 ? "comprobado" : ant.saldoPendiente < ant.monto ? "parcial" : ant.status;
+}
+
+// Recalcular todos al cargar
+SOLICITUDES.filter(s => s.tipo === "comprobacion" && s.anticipoRef)
+  .forEach(s => calcSaldo(s.anticipoRef));
+
+// ── Pólizas de liquidación ──────────────────────────────────────────────────
+// Genera el asiento de liquidación cuando se libera una comprobación
+// Cargo: cuentas de gasto  |  Abono: 1125 Deudores (cancela el anticipo)
+function generarPolizaLiquidacion(comprobacion) {
+  if (!comprobacion || comprobacion.tipo !== "comprobacion") return null;
+  const ant = SOLICITUDES.find(s => s.id === comprobacion.anticipoRef);
+  const u   = findUser(comprobacion.usuario);
+  if (!ant || !u) return null;
+
+  const items = (() => {
+    if (comprobacion.cfdi && comprobacion.cfdi.length > 0)
+      return comprobacion.cfdi.map(cf => ({ cuenta: cf.cuenta || "6121200001", desc: cf.concepto || cf.emisor || "—", monto: cf.total || 0 }));
+    if (comprobacion.items && comprobacion.items.length > 0)
+      return comprobacion.items.map(it => ({ cuenta: it.cuenta || "6121200001", desc: it.desc || "—", monto: it.monto || 0 }));
+    return [{ cuenta: "6121200001", desc: comprobacion.concepto, monto: comprobacion.monto }];
+  })();
+
+  const totalComp = items.reduce((a, i) => a + i.monto, 0);
+  const diff      = Math.round((ant.monto - totalComp) * 100) / 100; // + devuelve, - debe más
+
+  const lineas = [];
+  // Cargos: cuentas de gasto (el gasto real)
+  items.forEach(it => {
+    if (it.monto <= 0) return;
+    const meta = findCuenta(it.cuenta) || { nombre: it.cuenta };
+    lineas.push({ tipo:"C", cuenta: it.cuenta, nombre: meta.nombre, debe: it.monto, haber: 0, concepto: it.desc });
+  });
+  // Abono: 1125 Deudores (cancela el anticipo por el monto comprobado)
+  lineas.push({ tipo:"A", cuenta:"1125", nombre:"Deudores Diversos / Anticipos a Empleados", debe: 0, haber: totalComp, concepto: `Liquidación anticipo ${ant.id} · ${u.nombre}` });
+  // Si hay diferencia a favor: abono extra a Bancos (devuelven el sobrante)
+  if (diff > 0.01) {
+    lineas.push({ tipo:"C", cuenta:"1101", nombre:"Bancos", debe: 0, haber: 0,
+      concepto: `Saldo a devolver ${window.fmtMXN(diff)} · pendiente de reintegro`, nota: true });
+  }
+  // Si el gasto excedió el anticipo: cargo adicional a 1125
+  if (diff < -0.01) {
+    lineas.push({ tipo:"C", cuenta:"1125", nombre:"Deudores Diversos / Anticipos a Empleados", debe: Math.abs(diff), haber: 0, concepto: `Diferencia por exceso sobre anticipo · ${u.nombre}` });
+    lineas.push({ tipo:"A", cuenta:"6000000", nombre:"Proveedor Único Viáticos", debe: 0, haber: Math.abs(diff), concepto: `Reembolso diferencia a ${u.nombre}` });
+  }
+
+  return { anticipoId: ant.id, comprobacionId: comprobacion.id, usuario: u.nombre, fecha: comprobacion.fecha, totalComp, totalAnt: ant.monto, diff, lineas };
+}
+
 Object.assign(window, {
   CENTROS, CATALOGO_GASTOS, USUARIOS, SOLICITUDES, COMPROBANTES_DEMO,
   HOY, diasAtras, fmtFecha, fmtMXN, findUser, findCentro, findCuenta,
   findUserByEmail, checkPassword, generateToken, verifyToken,
+  calcSaldo, generarPolizaLiquidacion, getBancosAccount,
 });
-
 
 // ═══ icons ═══
 // Viáticos — Icons (inline SVG, line style, 16-20px)
@@ -2121,7 +2192,6 @@ function Spark({ values, color = "var(--accent)" }) {
 
 Object.assign(window, { Sidebar, Topbar, Stepper, StatusBadge, TipoBadge, Spark, NAV, ROLE_LABELS, ROLE_USERS });
 
-
 // ═══ user-pages ═══
 // Viáticos — User-facing pages
 
@@ -2130,6 +2200,11 @@ function UserDashboard({ userId, openDetail, setPage }) {
   const c = window.findCentro(u.centro);
   const [filtro, setFiltro] = React.useState("todas");
   const [, forceRender] = React.useReducer(x => x + 1, 0);
+  // Recalcular saldos al montar
+  React.useEffect(() => {
+    window.SOLICITUDES.filter(s => s.tipo === "comprobacion" && s.anticipoRef && s.usuario === userId)
+      .forEach(s => window.calcSaldo(s.anticipoRef));
+  }, [userId]);
   const mine = window.SOLICITUDES.filter(s => s.usuario === userId);
   const filtradas = filtro === "todas" ? mine : mine.filter(s => s.tipo === filtro);
   const eliminarBorrador = (id) => {
@@ -2566,12 +2641,15 @@ function CompUploader({ onAdd }) {
 
 function NuevaComprobacion({ setPage, userId = "U001" }) {
   // pendientes como estado para que se actualice al enviar
-  const [pendientes, setPendientes] = React.useState(() =>
-    window.SOLICITUDES.filter(s =>
+  const [pendientes, setPendientes] = React.useState(() => {
+    // Recalcular saldos antes de filtrar
+    window.SOLICITUDES.filter(s => s.tipo === "comprobacion" && s.anticipoRef && s.usuario === userId)
+      .forEach(s => window.calcSaldo(s.anticipoRef));
+    return window.SOLICITUDES.filter(s =>
       s.tipo === "anticipo" && s.usuario === userId &&
-      ["autorizado","liberado"].includes(s.status) && s.saldoPendiente > 0
-    )
-  );
+      ["autorizado","liberado","parcial"].includes(s.status) && (s.saldoPendiente || 0) > 0
+    );
+  });
   const [anticipoSel, setAnticipoSel] = React.useState(null);
   const [items, setItems] = React.useState([]);   // vacío — usuario sube sus propias facturas
   const [editId, setEditId] = React.useState(null);
@@ -3147,7 +3225,6 @@ function Reembolsos({ userId }) {
 
 Object.assign(window, { UserDashboard, SolicitarAnticipo, NuevaComprobacion, Reembolsos });
 
-
 // ═══ role-pages ═══
 // Viáticos — Gerente, Tesorería, Admin pages
 
@@ -3426,7 +3503,16 @@ function TesoreriaBandeja({ openDetail }) {
     const idsArr = Array.isArray(ids) ? ids : [ids];
     idsArr.forEach(id => {
       const s = window.SOLICITUDES.find(x => x.id === id);
-      if (s) s.status = "liberado";
+      if (!s) return;
+      s.status = "liberado";
+      // Recalcular saldo del anticipo relacionado
+      if (s.tipo === "comprobacion" && s.anticipoRef) {
+        window.calcSaldo(s.anticipoRef);
+      }
+      // Para anticipos: actualizar saldoPendiente
+      if (s.tipo === "anticipo") {
+        s.saldoPendiente = s.monto;
+      }
     });
     setItems(items.filter(i => !idsArr.includes(i.id)));
     const newSel = new Set(selected);
@@ -3696,6 +3782,8 @@ function AdminUsuarios() {
             ]},
             {key:"centro", label:"Centro de beneficio", value:editing.centro, type:"select",
               options: window.CENTROS.map(c=>({value:c.id, label:`${c.id} · ${c.nombre}`}))},
+            {key:"division", label:"División", value:editing.division||"4105", type:"select",
+              options:[{value:"4105",label:"4105"},{value:"4106",label:"4106"}]},
             {key:"gerente", label:"Reporta a", value:editing.gerente||"", type:"select",
               options:[{value:"", label:"— ninguno —"},
                 ...users.filter(u=>u.rol==="gerente").map(g=>({value:g.id,label:g.nombre}))]},
@@ -3733,7 +3821,7 @@ function AdminUsuarios() {
           <thead>
             <tr>
               <th>Usuario</th><th>Correo</th><th>Rol</th>
-              <th>Centro de beneficio</th><th>Reporta a</th><th></th>
+              <th>División</th><th>Centro de beneficio</th><th>Reporta a</th><th></th>
             </tr>
           </thead>
           <tbody>
@@ -3757,6 +3845,14 @@ function AdminUsuarios() {
                   </td>
                   <td className="mono" style={{fontSize:12}}>{u.correo}</td>
                   <td><span className="badge tipo" style={{textTransform:"capitalize"}}>{u.rol}</span></td>
+                  <td>
+                    <span style={{fontFamily:"var(--f-mono,monospace)",fontWeight:600,
+                      fontSize:12,padding:"2px 8px",borderRadius:20,
+                      background:"var(--accent-soft,rgba(197,242,77,.12))",
+                      color:"var(--accent)"}}>
+                      {u.division || "—"}
+                    </span>
+                  </td>
                   <td>
                     <div>{c ? c.nombre : "—"}</div>
                     <div className="muted mono" style={{fontSize:11}}>{c ? `${c.id} · ${c.depto}` : ""}</div>
@@ -3951,7 +4047,9 @@ function AdminCatalogo() {
             {key:"cuenta", label:"Número de cuenta", value:editing.cuenta},
             {key:"nombre", label:"Nombre",            value:editing.nombre},
             {key:"grupo",  label:"Grupo",             value:editing.grupo, full:true, type:"select",
-              options:["Transporte","Hospedaje","Alimentos","Impuestos","Otros"].map(g=>({value:g,label:g}))},
+              options:["Transporte","Hospedaje","Alimentos","Impuestos","Activo","Otros"].map(g=>({value:g,label:g}))},
+            ...(editing.grupo==="Activo" ? [{key:"division", label:"División (cuenta de banco)", value:editing.division||"",
+              type:"select", options:[{value:"",label:"— general —"},{value:"4105",label:"4105"},{value:"4106",label:"4106"}]}] : []),
           ]}
           onClose={() => setEditing(null)}
           onSave={save}
@@ -3978,7 +4076,14 @@ function AdminCatalogo() {
             {cuentasFiltradas.map(c => (
               <tr key={c.cuenta} onClick={() => openEdit(c)} style={{cursor:"pointer"}}>
                 <td className="mono" style={{fontWeight:600}}>{c.cuenta}</td>
-                <td>{c.nombre}</td>
+                <td>
+                  {c.nombre}
+                  {c.division && (
+                    <span style={{marginLeft:8,fontSize:10,padding:"1px 6px",borderRadius:20,
+                      background:"var(--accent-soft,rgba(197,242,77,.12))",color:"var(--accent)",
+                      fontWeight:600}}>Div. {c.division}</span>
+                  )}
+                </td>
                 <td><span className="badge tipo">{c.grupo}</span></td>
                 <td className="muted" style={{fontSize:12}}>{PALABRAS_CLAVE[c.cuenta] || "—"}</td>
                 <td className="num mono">{((c.cuenta.charCodeAt(7)||50)%40)+5}</td>
@@ -4299,6 +4404,61 @@ function Reportes() {
   );
 }
 
+
+// ── Descarga todos los adjuntos de una solicitud (XML + PDF por cada factura) ──
+function descargarTodosAdjuntos(solicitudId, folio) {
+  const s = window.SOLICITUDES.find(x => x.id === (solicitudId || folio));
+  const archivos = s && s.cfdi && s.cfdi.length > 0
+    ? s.cfdi.map((cf, i) => ({
+        nombre: `${(s||{}).id||folio}_${(cf.emisor||"factura").replace(/[^a-zA-Z0-9]/g,"_").slice(0,20)}_${i+1}`,
+        uuid:   cf.uuid || cf.uuidFull || null,
+        emisor: cf.emisor || null,
+        total:  cf.total || 0,
+      }))
+    : s && s.comprobantes > 0
+      ? Array.from({length: s.comprobantes}, (_,i) => ({
+          nombre: `${(s||{}).id||folio}_comprobante_${i+1}`,
+          uuid: null, emisor: null, total: null,
+        }))
+      : [];
+
+  if (!archivos.length) {
+    alert("No hay comprobantes adjuntos registrados en esta solicitud.");
+    return;
+  }
+
+  // Descargar cada archivo con un pequeño delay para no saturar el navegador
+  archivos.forEach((f, i) => {
+    setTimeout(() => {
+      // XML
+      const xmlContent = f.uuid
+        ? `<?xml version="1.0" encoding="UTF-8"?><Comprobante xmlns="http://www.sat.gob.mx/cfd/4" UUID="${f.uuid}" Emisor="${f.emisor||""}" Total="${f.total||0}" Folio="${folio}"/>`
+        : `<?xml version="1.0" encoding="UTF-8"?><Comprobante Folio="${folio}" Archivo="${i+1}"/>`;
+      const ax = document.createElement("a");
+      ax.href = "data:application/xml;charset=utf-8," + encodeURIComponent(xmlContent);
+      ax.download = `${f.nombre}.xml`;
+      ax.click();
+
+      // PDF (con delay adicional para no bloquear)
+      setTimeout(() => {
+        const pdfText = [
+          `%PDF-1.4`,
+          `% Comprobante fiscal - ${folio}`,
+          `% Emisor: ${f.emisor||"—"}`,
+          `% UUID: ${f.uuid||"—"}`,
+          `% Total: $${f.total||0}`,
+          `% En producción se descargará el PDF real del servidor.`,
+        ].join('\n');
+        const ap = document.createElement("a");
+        ap.href = "data:application/pdf;charset=utf-8," + encodeURIComponent(pdfText);
+        ap.download = `${f.nombre}.pdf`;
+        ap.click();
+      }, 300);
+
+    }, i * 800); // 800ms entre cada par XML+PDF
+  });
+}
+
 function DetalleModal({ id, onClose }) {
   const s = window.SOLICITUDES.find(x => x.id === id);
   if (!s) return null;
@@ -4534,6 +4694,11 @@ function DetalleModal({ id, onClose }) {
                     Archivos adjuntos
                     <span className="muted" style={{fontWeight:400,fontSize:12,marginLeft:8}}>{archivos.length} archivo{archivos.length>1?"s":""}</span>
                   </h3>
+                  <button className="btn sm" onClick={() => descargarTodosAdjuntos(s.id, s.id)}
+                    style={{display:"inline-flex",alignItems:"center",gap:5}}>
+                    <Icon name="download" size={12}/>
+                    Descargar todos ({archivos.length * 2} archivos)
+                  </button>
                 </div>
                 <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
                   {archivos.map((f,i) => (
@@ -4631,7 +4796,7 @@ function DetalleModal({ id, onClose }) {
 //  MÓDULO CONTADOR — Pólizas Contables
 // ══════════════════════════════════════════════════════
 function ContadorPolizas() {
-  const PROVEEDOR_UNICO = "60000";
+  const PROVEEDOR_UNICO = "6000000";
 
   const hoy = window.HOY;
   // Default: últimos 90 días para asegurar datos en el demo
@@ -4641,8 +4806,9 @@ function ContadorPolizas() {
   const [fechaIni, setFechaIni] = React.useState(fmt(hace90));
   const [fechaFin, setFechaFin] = React.useState(fmt(hoy));
   const [centro,   setCentro]   = React.useState("todos");
-  const [polizas,  setPolizas]  = React.useState([]);
-  const [generado, setGenerado] = React.useState(false);
+  const [polizas,       setPolizas]       = React.useState([]);
+  const [liquidaciones, setLiquidaciones] = React.useState([]);
+  const [generado,      setGenerado]      = React.useState(false);
 
   // Genera las líneas de póliza — SOLO comprobaciones y reembolsos
   const generarPolizas = () => {
@@ -4650,10 +4816,15 @@ function ContadorPolizas() {
     const hasta  = new Date(fechaFin + "T23:59:59");
 
     const solicitudes = window.SOLICITUDES.filter(s => {
-      // Solo comprobaciones y reembolsos — los anticipos no generan póliza
-      if (s.tipo !== "comprobacion" && s.tipo !== "reembolso") return false;
-      // Cualquier status excepto solicitado y rechazado
-      if (s.status === "rechazado" || s.status === "solicitado") return false;
+      // Anticipos: solo liberados (Bancos vs Deudor)
+      // Comprobaciones y reembolsos: liberados, autorizados o comprobados (Gastos vs Proveedor único)
+      if (s.tipo === "anticipo") {
+        if (s.status !== "liberado") return false;
+      } else if (s.tipo === "comprobacion" || s.tipo === "reembolso") {
+        if (s.status === "rechazado" || s.status === "solicitado") return false;
+      } else {
+        return false;
+      }
       if (s.fecha < desde || s.fecha > hasta) return false;
       if (centro !== "todos") {
         const u = window.findUser(s.usuario);
@@ -4672,75 +4843,240 @@ function ContadorPolizas() {
       const c = window.findCentro(u.centro);
       const centroId = c ? c.id : u.centro;
 
-      // Obtener desglose real o estimado
-      const items = (() => {
-        if (s.cfdi && s.cfdi.length > 0) {
-          return s.cfdi.map(cf => ({
-            cuenta: cf.cuenta || "6121200001",
-            desc:   cf.concepto || cf.emisor || s.concepto,
-            monto:  cf.total || 0,
-            emisor: cf.emisor || "—",
-          }));
-        }
-        if (s.items && s.items.length > 0) {
-          return s.items.map(it => ({
-            cuenta: it.cuenta || "6121200001",
-            desc:   it.desc || s.concepto,
-            monto:  it.monto || 0,
-            emisor: "—",
-          }));
-        }
-        return [{ cuenta:"6121200001", desc: s.concepto, monto: s.monto, emisor:"—" }];
-      })();
-
-      const totalMov = items.reduce((a,i) => a+i.monto, 0);
       const fechaFmt = window.fmtFecha(s.fecha);
+      const polRef = `POL-${String(numPoliza).padStart(4,"0")}`;
 
-      // Cargos: una línea por tipo de gasto
-      items.forEach((it, idx) => {
-        if (it.monto <= 0) return;
-        const meta = window.findCuenta(it.cuenta) || { nombre: it.cuenta };
+      if (s.tipo === "anticipo") {
+        // ── Póliza de ANTICIPO: Bancos vs Deudor ──────────────────────────
+        // El número de deudor en SAP es el ID del usuario
+        const division    = u.division || "4105";
+        const cuentaBanco = window.getBancosAccount(division);
+        const cuentaBancoNombre = window.CATALOGO_GASTOS.find(cg => cg.cuenta === cuentaBanco)?.nombre || `Bancos ${division}`;
+
+        // Cargo: cuenta deudor = ID del usuario (número de deudor SAP)
         lineas.push({
-          poliza:    `POL-${String(numPoliza).padStart(4,"0")}`,
-          folio:     s.id,
-          fecha:     fechaFmt,
-          centro:    centroId,
-          area:      c ? c.nombre : centroId,
-          cuenta:    it.cuenta,
-          nombreCuenta: meta.nombre,
-          tipo:      "C",  // Cargo
-          debe:      it.monto,
-          haber:     0,
-          concepto:  it.desc,
-          proveedor: it.emisor !== "—" ? it.emisor : "—",
-          usuario:   u.nombre,
-          ref:       s.id,
+          poliza: polRef, folio: s.id, fecha: fechaFmt,
+          centro: centroId, area: c ? c.nombre : centroId,
+          division,
+          cuenta: u.id,        // ID usuario = número deudor SAP
+          nombreCuenta: `Deudor ${u.nombre} (${u.id})`,
+          tipo: "C", debe: s.monto, haber: 0,
+          concepto: `Anticipo viáticos · ${u.nombre} · ${s.concepto}`,
+          proveedor: u.nombre, usuario: u.nombre, ref: s.id, _archivos: [],
         });
-      });
+        // Abono: cuenta de bancos según división del usuario
+        lineas.push({
+          poliza: polRef, folio: s.id, fecha: fechaFmt,
+          centro: centroId, area: c ? c.nombre : centroId,
+          division,
+          cuenta: cuentaBanco,
+          nombreCuenta: cuentaBancoNombre,
+          tipo: "A", debe: 0, haber: s.monto,
+          concepto: `Anticipo viáticos · ${u.nombre} · ${s.concepto}`,
+          proveedor: "—", usuario: u.nombre, ref: s.id,
+          _archivos: [],
+        });
 
-      // Abono: proveedor único 60000 por el total
-      lineas.push({
-        poliza:    `POL-${String(numPoliza).padStart(4,"0")}`,
-        folio:     s.id,
-        fecha:     fechaFmt,
-        centro:    centroId,
-        area:      c ? c.nombre : centroId,
-        cuenta:    PROVEEDOR_UNICO,
-        nombreCuenta: "Proveedor Único Viáticos",
-        tipo:      "A",  // Abono
-        debe:      0,
-        haber:     totalMov,
-        concepto:  `Viáticos ${u.nombre} · ${s.concepto}`,
-        proveedor: `${u.nombre} · ${u.correo}`,
-        usuario:   u.nombre,
-        ref:       s.id,
-      });
+      } else {
+        // ── Póliza de COMPROBACIÓN / REEMBOLSO: Gastos vs Proveedor 6000000 ─
+
+        // Obtener desglose real o estimado
+        const items = (() => {
+          if (s.cfdi && s.cfdi.length > 0) {
+            return s.cfdi.map(cf => ({
+              cuenta: cf.cuenta || "6121200001",
+              desc:   cf.concepto || cf.emisor || s.concepto,
+              monto:  cf.total || 0,
+              emisor: cf.emisor || "—",
+            }));
+          }
+          if (s.items && s.items.length > 0) {
+            return s.items.map(it => ({
+              cuenta: it.cuenta || "6121200001",
+              desc:   it.desc || s.concepto,
+              monto:  it.monto || 0,
+              emisor: "—",
+            }));
+          }
+          return [{ cuenta:"6121200001", desc: s.concepto, monto: s.monto, emisor:"—" }];
+        })();
+
+        const totalMov = items.reduce((a,i) => a+i.monto, 0);
+
+        // Cargos: una línea por tipo de gasto
+        const divisionComp = u.division || "4105";
+        items.forEach(it => {
+          if (it.monto <= 0) return;
+          const meta = window.findCuenta(it.cuenta) || { nombre: it.cuenta };
+          lineas.push({
+            poliza: polRef, folio: s.id, fecha: fechaFmt,
+            centro: centroId, area: c ? c.nombre : centroId,
+            division: divisionComp,
+            cuenta: it.cuenta, nombreCuenta: meta.nombre,
+            tipo: "C", debe: it.monto, haber: 0,
+            concepto: it.desc,
+            proveedor: it.emisor !== "—" ? it.emisor : "—",
+            usuario: u.nombre, ref: s.id,
+          });
+        });
+
+        // Abono: proveedor único 6000000
+        lineas.push({
+          poliza: polRef, folio: s.id, fecha: fechaFmt,
+          centro: centroId, area: c ? c.nombre : centroId,
+          division: divisionComp,
+          cuenta: PROVEEDOR_UNICO, nombreCuenta: "Proveedor Único Viáticos",
+          tipo: "A", debe: 0, haber: totalMov,
+          concepto: `Viáticos ${u.nombre} · ${s.concepto}`,
+          proveedor: `${u.nombre} · ${u.correo}`,
+          usuario: u.nombre, ref: s.id,
+          _archivos: s.cfdi && s.cfdi.length > 0
+            ? s.cfdi.map((cf,i) => ({
+                nombre: `${s.id}_${(cf.emisor||"factura").replace(/[^a-zA-Z0-9]/g,"_").slice(0,20)}_${i+1}`,
+                uuid: cf.uuid || cf.uuidFull || null,
+                emisor: cf.emisor || null,
+                total: cf.total || 0,
+              }))
+            : s.comprobantes > 0
+              ? Array.from({length: s.comprobantes}, (_,i) => ({
+                  nombre: `${s.id}_comprobante_${i+1}`,
+                  uuid: null, emisor: null, total: null,
+                }))
+              : [],
+        });
+      }
 
       numPoliza++;
     });
 
     setPolizas(lineas);
+
+    // Generar también las pólizas de liquidación para comprobaciones
+    const liquidaciones = solicitudes
+      .filter(s => s.tipo === "comprobacion" && s.anticipoRef)
+      .map(s => window.generarPolizaLiquidacion(s))
+      .filter(Boolean);
+    setLiquidaciones(liquidaciones);
     setGenerado(true);
+  };
+
+  // ── Layout SAP FB50 / RFBIBL00 ─────────────────────────────────────────────
+  // El programa RFBIBL00 lee un archivo de texto con posiciones fijas.
+  // Cada registro empieza con un identificador de tipo:
+  //   BSE = cabecera del documento
+  //   BSP = posición individual (línea de asiento)
+  //
+  // Campos BSE (cabecera):
+  //   Col 1-3:   BSEG (tipo "BSE")
+  //   Col 5-14:  BUKRS  Sociedad (4 chars)
+  //   Col 16-21: BLDAT  Fecha doc  DDMMYY
+  //   Col 23-28: BUDAT  Fecha contab DDMMYY
+  //   Col 30-31: BLART  Tipo doc (KR=prov, SA=contabilidad gral)
+  //   Col 33-37: WAERS  Moneda
+  //   Col 39-98: BKTXT  Texto cabecera (60 chars)
+  //   Col 100-109: XBLNR Referencia externa (10 chars)
+  //
+  // Campos BSP (posición):
+  //   Col 1-3:   "BSP"
+  //   Col 5-14:  HKONT  Cuenta GL (10 chars)
+  //   Col 16:    SHKZG  D=Debe / H=Haber
+  //   Col 18-32: WRBTR  Importe (15.2, sin punto, último 2=decimales)
+  //   Col 34-43: KOSTL  Centro de costo (10 chars)
+  //   Col 45-104: SGTXT Texto posición (60 chars)
+  //   Col 106-115: ZUONR Asignación (10 chars)
+
+  const getSociedad = () => {
+    const el = document.getElementById("sap-bukrs");
+    return (el ? el.value.trim().toUpperCase() : "") || "CZAP";
+  };
+
+  const padR = (s, n) => String(s||"").substring(0,n).padEnd(n);
+  const padL = (s, n) => String(s||"").substring(0,n).padStart(n);
+  const fmtFechaSAP = d => {
+    const dt = d instanceof Date ? d : new Date(d);
+    const dd = String(dt.getDate()).padStart(2,"0");
+    const mm = String(dt.getMonth()+1).padStart(2,"0");
+    const yy = String(dt.getFullYear()).slice(-2);
+    return `${dd}${mm}${yy}`;
+  };
+  const fmtImporte = n => {
+    const abs = Math.abs(Math.round(n * 100));
+    return String(abs).padStart(15,"0").replace(/(\d{2})$/, ".$1");
+  };
+
+  const exportarSAP = () => {
+    const SOCIEDAD = getSociedad();
+    // Agrupar todas las lineas (pólizas + liquidaciones) por número de póliza
+    const todasLineas = [
+      ...polizas,
+      ...liquidaciones.flatMap((liq, li) =>
+        liq.lineas.map(l => ({
+          poliza:    `LIQ-${String(li+1).padStart(4,"0")}`,
+          folio:     liq.comprobacionId,
+          fecha:     window.fmtFecha(liq.fecha),
+          _fechaObj: liq.fecha,
+          centro:    polizas.find(p=>p.folio===liq.comprobacionId)?.centro || "",
+          cuenta:    l.cuenta,
+          tipo:      l.tipo,
+          debe:      l.debe || 0,
+          haber:     l.haber || 0,
+          concepto:  l.concepto,
+        }))
+      ),
+    ];
+
+    const grupos = {};
+    todasLineas.forEach(l => {
+      if (!grupos[l.poliza]) grupos[l.poliza] = [];
+      grupos[l.poliza].push(l);
+    });
+
+    const lineasSAP = [];
+    lineasSAP.push("* Layout generado por Sistema de Viáticos Casa Zapata");
+    lineasSAP.push(`* Sociedad: ${SOCIEDAD}  Rango: ${fechaIni} al ${fechaFin}`);
+    lineasSAP.push(`* Pólizas: ${Object.keys(grupos).length}  Fecha: ${new Date().toISOString().slice(0,10)}`);
+    lineasSAP.push("");
+
+    Object.entries(grupos).forEach(([numPol, movs]) => {
+      const ref = movs[0];
+      // Obtener fecha como objeto Date
+      // Get fecha from SOLICITUDES — _fechaObj may not be on all lines
+      const _sol = window.SOLICITUDES.find(x => x.id === ref.folio);
+      const fechaDoc = _sol ? _sol.fecha : (ref._fechaObj || new Date());
+      const tipoDoc = numPol.startsWith("LIQ") ? "SA" :
+                      ref.cuenta === "1125" || ref.cuenta === "1101" ? "SA" : "KR";
+      const fechaSAP = fmtFechaSAP(fechaDoc);
+      const textoCab = padR(`Viaticos ${ref.folio} ${ref.area||""}`, 60);
+      const refExterna = padR(ref.folio, 10);
+
+      const divisionSAP = movs.find(m => m.division)?.division || "";
+      // BSE — cabecera del documento
+      // Col adicional: división (referencia interna)
+      lineasSAP.push(
+        `BSE  ${padR(SOCIEDAD,4)}  ${fechaSAP}  ${fechaSAP}  ${tipoDoc}  MXN  ${textoCab}  ${refExterna}  ${padR(divisionSAP,6)}`
+      );
+
+      // BSP — una línea por movimiento
+      movs.forEach(m => {
+        const cuenta  = padR(m.cuenta, 10);
+        const dc      = m.tipo === "C" ? "D" : "H";
+        const importe = fmtImporte(m.tipo === "C" ? m.debe : m.haber);
+        const kostl   = padR(m.centro || ref.centro, 10);
+        const texto   = padR(m.concepto, 60);
+        const asign   = padR(m.folio, 10);
+        lineasSAP.push(
+          `BSP  ${cuenta}  ${dc}  ${importe}  ${kostl}  ${texto}  ${asign}`
+        );
+      });
+
+      lineasSAP.push(""); // línea en blanco entre documentos
+    });
+
+    const content = lineasSAP.join('\n');
+    const a = document.createElement("a");
+    a.href = "data:text/plain;charset=utf-8," + encodeURIComponent(content);
+    a.download = `SAP_FB50_${fechaIni}_${fechaFin}.txt`;
+    a.click();
   };
 
   const exportarPolizas = () => {
@@ -4771,9 +5107,14 @@ function ContadorPolizas() {
           <div className="page-sub">Generación de movimientos contables por rango de fecha y centro de beneficio</div>
         </div>
         {generado && polizas.length > 0 && (
-          <button className="btn primary" onClick={exportarPolizas}>
-            <Icon name="download" size={13}/> Exportar CSV · {polizasUnicas} pólizas
-          </button>
+          <div style={{display:"flex",gap:8}}>
+            <button className="btn" onClick={exportarPolizas}>
+              <Icon name="download" size={13}/> CSV resumen · {polizasUnicas} pólizas
+            </button>
+            <button className="btn primary" onClick={exportarSAP}>
+              <Icon name="download" size={13}/> Layout SAP (FB50)
+            </button>
+          </div>
         )}
       </div>
 
@@ -4803,13 +5144,20 @@ function ContadorPolizas() {
             <label>Proveedor acreedor</label>
             <input className="input mono" value={`${PROVEEDOR_UNICO} — Proveedor Único Viáticos`} disabled/>
           </div>
+          <div className="field">
+            <label>Sociedad SAP (BUKRS)</label>
+            <input className="input mono" defaultValue="CZAP"
+              placeholder="Ej: CZAP, 1000, MXSA"
+              id="sap-bukrs"
+              style={{textTransform:"uppercase"}}/>
+          </div>
         </div>
         <div style={{display:"flex",gap:8}}>
           <button className="btn primary" onClick={generarPolizas}>
             <Icon name="sparkle" size={13}/> Generar pólizas
           </button>
           {generado && (
-            <button className="btn" onClick={()=>{setPolizas([]);setGenerado(false);}}>
+            <button className="btn" onClick={()=>{setPolizas([]);setLiquidaciones([]);setGenerado(false);}}>
               Limpiar
             </button>
           )}
@@ -4860,15 +5208,35 @@ function ContadorPolizas() {
             return (
               <div key={numPol} className="card" style={{marginBottom:14,padding:0}}>
                 {/* Header de póliza */}
-                <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",
-                  display:"flex",alignItems:"center",gap:16,background:"var(--surface-2,rgba(255,255,255,.04))",
-                  borderRadius:"var(--r-lg) var(--r-lg) 0 0"}}>
-                  <span className="mono" style={{fontWeight:700,fontSize:14}}>{numPol}</span>
-                  <span className="badge tipo">{ref.folio}</span>
-                  <span className="muted" style={{fontSize:12}}>{ref.fecha}</span>
-                  <span className="muted" style={{fontSize:12}}>{ref.area} · {ref.centro}</span>
-                  <span style={{marginLeft:"auto",fontWeight:600,fontFamily:"var(--f-mono,monospace)"}}>{window.fmtMXN(totD)}</span>
-                </div>
+                {(() => {
+                  const s = window.SOLICITUDES.find(x=>x.id===ref.folio);
+                  const tipoLabel = s && s.tipo==="anticipo" ? "Anticipo · Bancos vs Deudor"
+                    : s && s.tipo==="reembolso" ? "Reembolso · Gastos vs Prov. 6000000"
+                    : "Comprobación · Gastos vs Prov. 6000000";
+                  const tipoColor = s && s.tipo==="anticipo" ? "var(--info)" : "var(--accent)";
+                  return (
+                    <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",
+                      display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",
+                      background:"var(--surface-2,rgba(255,255,255,.04))",
+                      borderRadius:"var(--r-lg) var(--r-lg) 0 0"}}>
+                      <span className="mono" style={{fontWeight:700,fontSize:14}}>{numPol}</span>
+                      <span className="badge tipo">{ref.folio}</span>
+                      <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,
+                        background:`${tipoColor}22`,color:tipoColor,fontWeight:500}}>
+                        {tipoLabel}
+                      </span>
+                      <span className="muted" style={{fontSize:12}}>{ref.fecha}</span>
+                      <span className="muted" style={{fontSize:12}}>{ref.area} · {ref.centro}</span>
+                      {ref.division && (
+                        <span style={{fontSize:11,padding:"1px 7px",borderRadius:20,
+                          background:"rgba(255,255,255,.08)",color:"var(--text-2)",fontWeight:500}}>
+                          Div. {ref.division}
+                        </span>
+                      )}
+                      <span style={{marginLeft:"auto",fontWeight:600,fontFamily:"var(--f-mono,monospace)"}}>{window.fmtMXN(totD)}</span>
+                    </div>
+                  );
+                })()}
 
                 <table className="t">
                   <thead>
@@ -4920,9 +5288,238 @@ function ContadorPolizas() {
                     </tr>
                   </tfoot>
                 </table>
+
+                {/* ── Archivos adjuntos de la póliza ── */}
+                {(() => {
+                  const abonoLine = movs.find(m => m._archivos);
+                  const archivos  = abonoLine ? abonoLine._archivos : [];
+                  if (!archivos.length) return null;
+                  return (
+                    <div style={{padding:"12px 16px",borderTop:"1px solid var(--border)",
+                      background:"var(--surface-2,rgba(255,255,255,.03))",
+                      borderRadius:"0 0 var(--r-lg) var(--r-lg)"}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                        <div style={{fontSize:11,fontWeight:600,letterSpacing:"0.07em",
+                          textTransform:"uppercase",color:"var(--text-3)"}}>
+                          Comprobantes adjuntos · {archivos.length} archivo{archivos.length>1?"s":""}
+                        </div>
+                        <button className="btn sm" onClick={() => descargarTodosAdjuntos(ref.folio, ref.folio)}
+                          style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:11}}>
+                          <Icon name="download" size={11}/>
+                          Descargar todos ({archivos.length * 2} archivos)
+                        </button>
+                      </div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                        {/* XML por cada factura */}
+                        {archivos.map((f,i) => {
+                          const xmlContent = f.uuid
+                            ? `<?xml version="1.0" encoding="UTF-8"?>
+<Comprobante xmlns="http://www.sat.gob.mx/cfd/4"
+  UUID="${f.uuid}"
+  NombreEmisor="${f.emisor||""}"
+  Total="${f.total||0}"
+  Folio="${ref.folio}"/>`
+                            : `<?xml version="1.0" encoding="UTF-8"?>
+<Comprobante Folio="${ref.folio}" Archivo="${i+1}"/>`;
+                          return (
+                            <React.Fragment key={i}>
+                              {/* Botón XML */}
+                              <button
+                                onClick={() => {
+                                  const a = document.createElement("a");
+                                  a.href = "data:application/xml;charset=utf-8," + encodeURIComponent(xmlContent);
+                                  a.download = `${f.nombre}.xml`;
+                                  a.click();
+                                }}
+                                style={{
+                                  display:"inline-flex",alignItems:"center",gap:7,
+                                  padding:"6px 11px",borderRadius:"var(--r-md,8px)",
+                                  border:"1px solid var(--border)",
+                                  background:"var(--surface-1,rgba(255,255,255,.06))",
+                                  cursor:"pointer",fontFamily:"inherit",color:"var(--text)",
+                                  fontSize:12,transition:"border-color .12s",
+                                }}
+                                onMouseEnter={e=>e.currentTarget.style.borderColor="var(--accent)"}
+                                onMouseLeave={e=>e.currentTarget.style.borderColor="var(--border)"}
+                              >
+                                <span style={{
+                                  background:"rgba(197,242,77,.15)",color:"var(--accent)",
+                                  fontWeight:700,fontSize:9,padding:"2px 5px",
+                                  borderRadius:4,fontFamily:"monospace",letterSpacing:"0.05em"
+                                }}>XML</span>
+                                <span style={{maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                  {f.nombre}
+                                </span>
+                                {f.uuid && (
+                                  <span style={{fontSize:10,color:"var(--text-3)",fontFamily:"monospace"}}>
+                                    {f.uuid.slice(0,8)}…
+                                  </span>
+                                )}
+                                <Icon name="download" size={11} style={{color:"var(--accent)",flexShrink:0}}/>
+                              </button>
+
+                              {/* Botón PDF */}
+                              <button
+                                onClick={() => {
+                                  // Generar PDF básico como texto — en producción vendría del servidor
+                                  const pdfText = [
+                                    `%PDF-1.4`,
+                                    `% Comprobante fiscal - ${ref.folio}`,
+                                    `% Emisor: ${f.emisor||"—"}`,
+                                    `% UUID: ${f.uuid||"—"}`,
+                                    `% Total: $${f.total||0}`,
+                                    `% Este archivo es un marcador de posición.`,
+                                    `% En producción se descargará el PDF real del servidor.`,
+                                  ].join('\n');
+                                  const a = document.createElement("a");
+                                  a.href = "data:application/pdf;charset=utf-8," + encodeURIComponent(pdfText);
+                                  a.download = `${f.nombre}.pdf`;
+                                  a.click();
+                                }}
+                                style={{
+                                  display:"inline-flex",alignItems:"center",gap:7,
+                                  padding:"6px 11px",borderRadius:"var(--r-md,8px)",
+                                  border:"1px solid var(--border)",
+                                  background:"var(--surface-1,rgba(255,255,255,.06))",
+                                  cursor:"pointer",fontFamily:"inherit",color:"var(--text)",
+                                  fontSize:12,transition:"border-color .12s",
+                                }}
+                                onMouseEnter={e=>e.currentTarget.style.borderColor="var(--info)"}
+                                onMouseLeave={e=>e.currentTarget.style.borderColor="var(--border)"}
+                              >
+                                <span style={{
+                                  background:"rgba(55,138,221,.15)",color:"var(--info,#378ADD)",
+                                  fontWeight:700,fontSize:9,padding:"2px 5px",
+                                  borderRadius:4,fontFamily:"monospace",letterSpacing:"0.05em"
+                                }}>PDF</span>
+                                <span style={{maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                  {f.nombre}
+                                </span>
+                                <Icon name="download" size={11} style={{color:"var(--info)",flexShrink:0}}/>
+                              </button>
+                            </React.Fragment>
+                          );
+                        })}
+                      </div>
+                      <div style={{fontSize:10,color:"var(--text-3)",marginTop:8,fontStyle:"italic"}}>
+                        Los XML contienen los datos del CFDI. En producción el PDF real se descarga del servidor de almacenamiento.
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
+          {/* ── Pólizas de liquidación de anticipos ── */}
+          {liquidaciones.length > 0 && (
+            <>
+              <div style={{margin:"24px 0 12px",padding:"10px 16px",
+                background:"var(--info-soft,rgba(55,138,221,.1))",
+                border:"1px solid var(--info,#378ADD)",borderRadius:"var(--r-md,8px)",
+                fontSize:13,color:"var(--info,#378ADD)",display:"flex",alignItems:"center",gap:8}}>
+                <Icon name="sparkle" size={14}/>
+                <strong>{liquidaciones.length} póliza{liquidaciones.length>1?"s":""} de liquidación</strong>
+                — Cancelan el saldo del deudor contra las cuentas de gasto reales
+              </div>
+
+              {liquidaciones.map((liq, li) => {
+                const totD = liq.lineas.reduce((a,l)=>a+(l.debe||0),0);
+                const totH = liq.lineas.reduce((a,l)=>a+(l.haber||0),0);
+                return (
+                  <div key={li} className="card" style={{marginBottom:14,padding:0,
+                    border:"1px solid var(--info,#378ADD)44"}}>
+                    <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",
+                      display:"flex",alignItems:"center",gap:12,flexWrap:"wrap",
+                      background:"var(--info-soft,rgba(55,138,221,.06))",
+                      borderRadius:"var(--r-lg) var(--r-lg) 0 0"}}>
+                      <span className="mono" style={{fontWeight:700,fontSize:14}}>
+                        LIQ-{String(li+1).padStart(4,"0")}
+                      </span>
+                      <span className="badge tipo">{liq.comprobacionId}</span>
+                      <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,
+                        background:"var(--info,#378ADD)22",color:"var(--info,#378ADD)",fontWeight:500}}>
+                        Liquidación · Gastos vs Deudor 1125
+                      </span>
+                      <span className="muted" style={{fontSize:12}}>{window.fmtFecha(liq.fecha)}</span>
+                      <span className="muted" style={{fontSize:12}}>{liq.usuario}</span>
+                      {liq.diff !== 0 && (
+                        <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,fontWeight:500,
+                          background: liq.diff>0?"var(--success-soft,#e1f5ee)":"var(--warn-soft,#faeeda)",
+                          color: liq.diff>0?"var(--success,#1d9e75)":"var(--warn,#ef9f27)"}}>
+                          {liq.diff>0 ? `↩ Devuelve ${window.fmtMXN(liq.diff)}` : `↑ Exceso ${window.fmtMXN(Math.abs(liq.diff))}`}
+                        </span>
+                      )}
+                      <span style={{marginLeft:"auto",fontWeight:600,fontFamily:"var(--f-mono,monospace)"}}>
+                        {window.fmtMXN(liq.totalComp)}
+                      </span>
+                    </div>
+
+                    {/* Resumen anticipo vs comprobado */}
+                    <div style={{padding:"10px 16px",borderBottom:"1px solid var(--border)",
+                      display:"flex",gap:24,flexWrap:"wrap",fontSize:12,
+                      background:"var(--surface-2,rgba(255,255,255,.03))"}}>
+                      <span><span className="muted">Anticipo original: </span>
+                        <strong className="mono">{window.fmtMXN(liq.totalAnt)}</strong>
+                        <span className="mono muted" style={{marginLeft:6}}>{liq.anticipoId}</span>
+                      </span>
+                      <span><span className="muted">Comprobado: </span>
+                        <strong className="mono">{window.fmtMXN(liq.totalComp)}</strong>
+                      </span>
+                      <span><span className="muted">Diferencia: </span>
+                        <strong className="mono" style={{color:liq.diff>0?"var(--success)":liq.diff<0?"var(--warn)":"inherit"}}>
+                          {liq.diff>=0?"+":""}{window.fmtMXN(liq.diff)}
+                        </strong>
+                      </span>
+                    </div>
+
+                    <table className="t">
+                      <thead>
+                        <tr>
+                          <th>Cuenta</th><th>Nombre cuenta</th><th>D/A</th>
+                          <th>Concepto</th><th className="right">Debe</th><th className="right">Haber</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {liq.lineas.map((l,i) => (
+                          <tr key={i} style={{
+                            background: l.nota ? "var(--warn-soft,#faeeda)" :
+                              l.tipo==="A" ? "var(--surface-2,rgba(255,255,255,.03))" : "transparent"
+                          }}>
+                            <td className="mono" style={{fontWeight:600,
+                              color:l.cuenta==="1125"?"var(--info)":l.cuenta==="1101"?"var(--success)":"var(--text)"}}>
+                              {l.cuenta}
+                            </td>
+                            <td style={{fontSize:12}}>{l.nombre}</td>
+                            <td>
+                              <span className={`badge ${l.tipo==="C"?"solicitado":"autorizado"}`}>
+                                <span className="dot"></span>{l.tipo==="C"?"Cargo":"Abono"}
+                              </span>
+                            </td>
+                            <td style={{fontSize:12,maxWidth:220,overflow:"hidden",
+                              textOverflow:"ellipsis",whiteSpace:"nowrap",
+                              fontStyle:l.nota?"italic":"normal"}}>{l.concepto}</td>
+                            <td className="num" style={{fontFamily:"var(--f-mono,monospace)"}}>
+                              {l.debe ? window.fmtMXN(l.debe) : "—"}
+                            </td>
+                            <td className="num" style={{fontFamily:"var(--f-mono,monospace)",color:"var(--info)"}}>
+                              {l.haber ? window.fmtMXN(l.haber) : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{borderTop:"1.5px solid var(--border)"}}>
+                          <td colSpan={4} style={{padding:"8px 10px",textAlign:"right",fontWeight:600,fontSize:12}}>Totales</td>
+                          <td className="num" style={{fontWeight:700}}>{window.fmtMXN(totD)}</td>
+                          <td className="num" style={{fontWeight:700,color:"var(--info)"}}>{window.fmtMXN(totH)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                );
+              })}
+            </>
+          )}
         </>
       )}
     </>
@@ -4960,7 +5557,6 @@ function EditableCell({ value, placeholder, onChange }) {
 }
 
 Object.assign(window, { GerenteBandeja, TesoreriaBandeja, AdminUsuarios, AdminCentros, AdminCatalogo, Reportes, DetalleModal, EditModal });
-
 
 // ═══ mobile ═══
 // Viáticos — Mobile (usuario en celular)
@@ -5179,7 +5775,6 @@ function PerfilPage({ userId, onLogout }) {
 }
 
 window.PerfilPage = PerfilPage;
-
 
 // ═══ app ═══
 // Viáticos — Main app + tweaks integration
@@ -5476,19 +6071,32 @@ function ThemePanel({ theme, onTheme, accent, onAccent, density, onDensity, isAd
   ];
 
   const panelStyle = {
-    position:"fixed", bottom:72, right:16, zIndex:500,
-    width:220, background:"var(--surface-1,#1c1e22)",
-    border:"1px solid var(--border)", borderRadius:12,
-    padding:"14px 16px", boxShadow:"0 8px 32px rgba(0,0,0,.4)",
+    position:"fixed",
+    bottom:"max(64px, calc(env(safe-area-inset-bottom, 0px) + 64px))",
+    right:"max(8px, env(safe-area-inset-right, 8px))",
+    zIndex:9999,
+    width:"min(240px, calc(100vw - 24px))",
+    background:"var(--surface-1,#1c1e22)",
+    border:"1px solid var(--border,rgba(255,255,255,.12))",
+    borderRadius:12,
+    padding:"14px 16px",
+    boxShadow:"0 8px 32px rgba(0,0,0,.5)",
     display: open ? "block" : "none",
   };
   const btnStyle = {
-    position:"fixed", bottom:16, right:16, zIndex:500,
-    width:44, height:44, borderRadius:"50%",
-    background:"var(--surface-2,rgba(255,255,255,.1))",
-    border:"1px solid var(--border)",
+    position:"fixed",
+    bottom:"max(16px, env(safe-area-inset-bottom, 16px))",
+    right:"max(16px, env(safe-area-inset-right, 16px))",
+    zIndex:9999,
+    minWidth:44, height:44, borderRadius:22,
+    padding:"0 12px",
+    background:"var(--accent,#c5f24d)",
+    color:"var(--accent-fg,#0a0b0f)",
+    border:"none",
     cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
-    fontSize:20, boxShadow:"0 4px 12px rgba(0,0,0,.3)",
+    gap:6, fontSize:13, fontWeight:600,
+    boxShadow:"0 4px 16px rgba(0,0,0,.4)",
+    fontFamily:"inherit",
   };
   const labelStyle = {
     fontSize:10, fontWeight:600, letterSpacing:"0.08em",
@@ -5507,7 +6115,8 @@ function ThemePanel({ theme, onTheme, accent, onAccent, density, onDensity, isAd
   return (
     <>
       <button style={btnStyle} onClick={() => setOpen(o=>!o)} title="Ajustes de apariencia">
-        ⚙
+        <span>⚙</span>
+        <span style={{fontSize:11}}>Ajustes</span>
       </button>
       <div style={panelStyle}>
         <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14}}>
