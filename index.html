@@ -1151,19 +1151,97 @@ function fmtMXN(n) {
 // SOLICITUDES — anticipos, comprobaciones, reembolsos
 // status: solicitado | autorizado | liberado | rechazado | comprobado | parcial
 const SOLICITUDES = [
-  { id: "ANT-2026-0142", tipo: "anticipo", concepto: "Visita comercial Monterrey - 3 días", usuario: "U001", monto: 8500, fecha: diasAtras(2),  status: "solicitado",  saldoPendiente: 8500, comprobantes: 0 },
-  { id: "ANT-2026-0141", tipo: "anticipo", concepto: "Capacitación regional Bajío",        usuario: "U002", monto: 12400, fecha: diasAtras(4), status: "autorizado",  saldoPendiente: 12400, comprobantes: 0 },
-  { id: "ANT-2026-0140", tipo: "anticipo", concepto: "Auditoría planta Querétaro",         usuario: "U004", monto: 6300, fecha: diasAtras(7),  status: "liberado",    saldoPendiente: 6300, comprobantes: 0 },
-  { id: "ANT-2026-0138", tipo: "anticipo", concepto: "Feria industrial Guadalajara",       usuario: "U001", monto: 15600, fecha: diasAtras(18),status: "liberado",    saldoPendiente: 4200, comprobantes: 5 },
-  { id: "ANT-2026-0135", tipo: "anticipo", concepto: "Cliente estratégico CDMX",           usuario: "U003", monto: 4800, fecha: diasAtras(35), status: "comprobado",  saldoPendiente: 0, comprobantes: 7 },
-  { id: "ANT-2026-0130", tipo: "anticipo", concepto: "Implementación TI sucursal Puebla",  usuario: "U006", monto: 22000, fecha: diasAtras(48),status: "liberado",    saldoPendiente: 11500, comprobantes: 8 },
-  { id: "ANT-2026-0125", tipo: "anticipo", concepto: "Junta accionistas Tijuana",          usuario: "U007", monto: 18900, fecha: diasAtras(72),status: "liberado",    saldoPendiente: 18900, comprobantes: 0 },
-  { id: "ANT-2026-0118", tipo: "anticipo", concepto: "Evento patrocinio Mérida",           usuario: "U005", monto: 9400, fecha: diasAtras(95), status: "liberado",    saldoPendiente: 9400, comprobantes: 0 },
-  { id: "ANT-2026-0102", tipo: "anticipo", concepto: "Negociación proveedor Saltillo",     usuario: "U008", monto: 5600, fecha: diasAtras(120), status: "liberado",   saldoPendiente: 5600, comprobantes: 0 },
+  { id: "ANT-2026-0142", tipo: "anticipo", concepto: "Visita comercial Monterrey - 3 días", usuario: "U001", monto: 8500, fecha: diasAtras(2), status: "solicitado", saldoPendiente: 8500, comprobantes: 0,
+    items: [
+      { cuenta: "6122900001", desc: "Vuelo GDL-MTY redondo", monto: 3800 },
+      { cuenta: "6122700001", desc: "TUA aeropuerto", monto: 280 },
+      { cuenta: "6122900003", desc: "Hotel 2 noches", monto: 2800 },
+      { cuenta: "6122900005", desc: "Viáticos comidas 3 días", monto: 1350 },
+      { cuenta: "6122900004", desc: "Estacionamiento aeropuerto", monto: 270 },
+    ]},
+  { id: "ANT-2026-0141", tipo: "anticipo", concepto: "Capacitación regional Bajío", usuario: "U002", monto: 12400, fecha: diasAtras(4), status: "autorizado", saldoPendiente: 12400, comprobantes: 0,
+    items: [
+      { cuenta: "6122900001", desc: "Vuelo CDMX-GDL-CDMX", monto: 5200 },
+      { cuenta: "6122700001", desc: "TUA x2", monto: 560 },
+      { cuenta: "6122900003", desc: "Hotel 3 noches", monto: 4200 },
+      { cuenta: "6122900005", desc: "Comidas y cenas", monto: 1680 },
+      { cuenta: "6122900002", desc: "Casetas autopista", monto: 760 },
+    ]},
+  { id: "ANT-2026-0140", tipo: "anticipo", concepto: "Auditoría planta Querétaro", usuario: "U004", monto: 6300, fecha: diasAtras(7), status: "liberado", saldoPendiente: 6300, comprobantes: 0,
+    items: [
+      { cuenta: "6122900006", desc: "Renta de auto 3 días", monto: 2400 },
+      { cuenta: "6120800001", desc: "Gasolina", monto: 950 },
+      { cuenta: "6122900002", desc: "Casetas ruta QRO", monto: 620 },
+      { cuenta: "6122900003", desc: "Hotel 2 noches", monto: 1680 },
+      { cuenta: "6122900005", desc: "Alimentos", monto: 650 },
+    ]},
+  { id: "ANT-2026-0138", tipo: "anticipo", concepto: "Feria industrial Guadalajara", usuario: "U001", monto: 15600, fecha: diasAtras(18), status: "liberado", saldoPendiente: 4200, comprobantes: 5,
+    items: [
+      { cuenta: "6122900001", desc: "Vuelo MTY-GDL-MTY", monto: 6400 },
+      { cuenta: "6122700001", desc: "TUA x2", monto: 560 },
+      { cuenta: "6122900003", desc: "Hotel 4 noches Expo GDL", monto: 5600 },
+      { cuenta: "6122900005", desc: "Comidas y entretenimiento", monto: 2240 },
+      { cuenta: "6122900004", desc: "Estacionamiento expo", monto: 800 },
+    ]},
+  { id: "ANT-2026-0135", tipo: "anticipo", concepto: "Cliente estratégico CDMX", usuario: "U003", monto: 4800, fecha: diasAtras(35), status: "comprobado", saldoPendiente: 0, comprobantes: 7,
+    items: [
+      { cuenta: "6122900001", desc: "Vuelo GDL-CDMX-GDL", monto: 2100 },
+      { cuenta: "6122700001", desc: "TUA", monto: 280 },
+      { cuenta: "6122900003", desc: "Hotel 1 noche", monto: 1400 },
+      { cuenta: "6122900005", desc: "Comida con cliente", monto: 1020 },
+    ]},
+  { id: "ANT-2026-0130", tipo: "anticipo", concepto: "Implementación TI sucursal Puebla", usuario: "U006", monto: 22000, fecha: diasAtras(48), status: "liberado", saldoPendiente: 11500, comprobantes: 8,
+    items: [
+      { cuenta: "6122900001", desc: "Vuelos CDMX-PUE x2", monto: 8400 },
+      { cuenta: "6122700001", desc: "TUA x4", monto: 1120 },
+      { cuenta: "6122900003", desc: "Hotel 5 noches", monto: 7000 },
+      { cuenta: "6122900005", desc: "Viáticos comidas", monto: 3500 },
+      { cuenta: "6122900006", desc: "Renta auto", monto: 1980 },
+    ]},
+  { id: "ANT-2026-0125", tipo: "anticipo", concepto: "Junta accionistas Tijuana", usuario: "U007", monto: 18900, fecha: diasAtras(72), status: "liberado", saldoPendiente: 18900, comprobantes: 0,
+    items: [
+      { cuenta: "6122900001", desc: "Vuelo CDMX-TIJ-CDMX", monto: 8500 },
+      { cuenta: "6122700001", desc: "TUA x2", monto: 560 },
+      { cuenta: "6122900003", desc: "Hotel 3 noches Gran Hotel TIJ", monto: 6300 },
+      { cuenta: "6122900005", desc: "Cenas con directivos", monto: 2940 },
+      { cuenta: "6122900004", desc: "Valet parking hotel", monto: 600 },
+    ]},
+  { id: "ANT-2026-0118", tipo: "anticipo", concepto: "Evento patrocinio Mérida", usuario: "U005", monto: 9400, fecha: diasAtras(95), status: "liberado", saldoPendiente: 9400, comprobantes: 0,
+    items: [
+      { cuenta: "6122900001", desc: "Vuelo CDMX-MID-CDMX", monto: 4200 },
+      { cuenta: "6122700001", desc: "TUA x2", monto: 560 },
+      { cuenta: "6122900003", desc: "Hotel 2 noches", monto: 2800 },
+      { cuenta: "6122900005", desc: "Comidas evento", monto: 1840 },
+    ]},
+  { id: "ANT-2026-0102", tipo: "anticipo", concepto: "Negociación proveedor Saltillo", usuario: "U008", monto: 5600, fecha: diasAtras(120), status: "liberado", saldoPendiente: 5600, comprobantes: 0,
+    items: [
+      { cuenta: "6122900006", desc: "Renta auto 2 días", monto: 1800 },
+      { cuenta: "6120800001", desc: "Gasolina ruta SLW", monto: 1200 },
+      { cuenta: "6122900002", desc: "Casetas autopista", monto: 880 },
+      { cuenta: "6122900005", desc: "Comidas con proveedor", monto: 1720 },
+    ]},
 
-  { id: "CMP-2026-0287", tipo: "comprobacion", concepto: "Comprobación ANT-2026-0138 (parcial)", usuario: "U001", monto: 11400, fecha: diasAtras(3), status: "solicitado", anticipoRef: "ANT-2026-0138", comprobantes: 5 },
-  { id: "CMP-2026-0285", tipo: "comprobacion", concepto: "Comprobación ANT-2026-0135",           usuario: "U003", monto: 4800, fecha: diasAtras(10), status: "comprobado", anticipoRef: "ANT-2026-0135", comprobantes: 7 },
-  { id: "CMP-2026-0283", tipo: "comprobacion", concepto: "Comprobación ANT-2026-0130 (parcial)", usuario: "U006", monto: 10500, fecha: diasAtras(14), status: "autorizado", anticipoRef: "ANT-2026-0130", comprobantes: 8 },
+  { id: "CMP-2026-0287", tipo: "comprobacion", concepto: "Comprobación ANT-2026-0138 (parcial)", usuario: "U001", monto: 11400, fecha: diasAtras(3), status: "solicitado", anticipoRef: "ANT-2026-0138", comprobantes: 5,
+    cfdi: [
+      { uuid: "A4F2-7B6C-9D1E", emisor: "Aeromexico Servicios", concepto: "Vuelo MTY-GDL redondo", subtotal: 5517.24, iva: 882.76, total: 6400, cuenta: "6122900001" },
+      { uuid: "B81C-2E4D-7A09", emisor: "ASUR Aeropuertos",     concepto: "TUA vuelo MTY-GDL x2",  subtotal: 482.76, iva: 77.24, total: 560, cuenta: "6122700001" },
+      { uuid: "33D7-9E8F-A102", emisor: "Hotel Guadalajara Expo", concepto: "Hospedaje 4 noches",  subtotal: 4827.59, iva: 772.41, total: 5600, cuenta: "6122900003" },
+      { uuid: "AA92-4F1B-7CC6", emisor: "Restaurantes Zona Expo", concepto: "Comidas 4 días",       subtotal: 689.66, iva: 110.34, total: 800, cuenta: "6122900005" },
+      { uuid: "F1D6-8E3A-22BC", emisor: "SABA Estacionamientos", concepto: "Estacionamiento 4 días", subtotal: 344.83, iva: 55.17, total: 400, cuenta: "6122900004" },
+    ]},
+  { id: "CMP-2026-0285", tipo: "comprobacion", concepto: "Comprobación ANT-2026-0135", usuario: "U003", monto: 4800, fecha: diasAtras(10), status: "comprobado", anticipoRef: "ANT-2026-0135", comprobantes: 7,
+    cfdi: [
+      { uuid: "D4A1-9B2C-3E8F", emisor: "Volaris",             concepto: "Vuelo GDL-CDMX-GDL",  subtotal: 1810.34, iva: 289.66, total: 2100, cuenta: "6122900001" },
+      { uuid: "E5B2-8C3D-4F9A", emisor: "ASUR Aeropuertos",   concepto: "TUA",                   subtotal: 241.38, iva: 38.62, total: 280, cuenta: "6122700001" },
+      { uuid: "F6C3-7D4E-5A0B", emisor: "Hotel Camino Real",  concepto: "Hospedaje 1 noche",      subtotal: 1206.9, iva: 193.1, total: 1400, cuenta: "6122900003" },
+      { uuid: "A7D4-6E5F-6B1C", emisor: "Restaurante Pujol",  concepto: "Comida de negocios",     subtotal: 879.31, iva: 140.69, total: 1020, cuenta: "6122900005" },
+    ]},
+  { id: "CMP-2026-0283", tipo: "comprobacion", concepto: "Comprobación ANT-2026-0130 (parcial)", usuario: "U006", monto: 10500, fecha: diasAtras(14), status: "autorizado", anticipoRef: "ANT-2026-0130", comprobantes: 8,
+    cfdi: [
+      { uuid: "C1E5-2F6A-7B3D", emisor: "Aeromexico",         concepto: "Vuelos CDMX-PUE x2",    subtotal: 7241.38, iva: 1158.62, total: 8400, cuenta: "6122900001" },
+      { uuid: "D2F6-3A7B-8C4E", emisor: "ASUR Aeropuertos",   concepto: "TUA x4",                 subtotal: 965.52, iva: 154.48, total: 1120, cuenta: "6122700001" },
+      { uuid: "E3A7-4B8C-9D5F", emisor: "Hotel Camino Real PUE", concepto: "Hospedaje 2 noches",  subtotal: 827.59, iva: 132.41, total: 960, cuenta: "6122900003" },
+    ]},
 
   { id: "REE-2026-0064", tipo: "reembolso", concepto: "Comida con cliente sin anticipo",    usuario: "U002", monto: 1850, fecha: diasAtras(1),  status: "solicitado", comprobantes: 1 },
   { id: "REE-2026-0063", tipo: "reembolso", concepto: "Taxi aeropuerto + estacionamiento",   usuario: "U005", monto: 920,  fecha: diasAtras(5),  status: "autorizado", comprobantes: 2 },
@@ -4204,24 +4282,46 @@ function DetalleModal({ id, onClose }) {
     comprobado: s.status === "comprobado" ? new Date(s.fecha.getTime() + 86400000*5) : null,
   };
 
-  // Unificar fuentes de desglose: CFDI > items > desglose
-  const lineas = s.cfdi && s.cfdi.length > 0
-    ? s.cfdi.map(cf => ({
-        cuenta: cf.cuenta,
-        desc:   cf.concepto || cf.emisor || "—",
-        monto:  cf.total || 0,
-        uuid:   cf.uuid || cf.uuidFull || null,
-        emisor: cf.emisor || null,
-        iva:    cf.iva || 0,
+  // Unificar fuentes de desglose: CFDI > items/desglose
+  const lineas = (() => {
+    // 1. Facturas CFDI parseadas (comprobaciones y reembolsos con XML)
+    if (s.cfdi && s.cfdi.length > 0) {
+      return s.cfdi.map(cf => ({
+        cuenta:   cf.cuenta || "6121200001",
+        desc:     cf.concepto || cf.emisor || "—",
+        monto:    cf.total || 0,
+        uuid:     cf.uuid || cf.uuidFull || null,
+        emisor:   cf.emisor || null,
+        iva:      cf.iva || 0,
         subtotal: cf.subtotal || 0,
-        isCFDI: true,
-      }))
-    : (s.items || s.desglose || []).map(it => ({
-        cuenta: it.cuenta || it.code,
-        desc:   it.desc || it.nombre || it.concepto || "—",
-        monto:  it.amt || it.monto || it.total || 0,
-        isCFDI: false,
+        isCFDI:   true,
       }));
+    }
+    // 2. Items de desglose (anticipos, comprobaciones manuales)
+    const raw = s.items || s.desglose || [];
+    if (raw.length > 0) {
+      return raw.map(it => ({
+        cuenta:  it.cuenta || it.code || it.expCode || "6121200001",
+        desc:    it.desc || it.nombre || it.concepto || it.descripcion || "—",
+        monto:   parseFloat(it.amt || it.monto || it.total || it.importe || 0),
+        isCFDI:  false,
+      }));
+    }
+    // 3. Sin desglose — generar estimado basado en tipo y monto total
+    const total = s.monto || 0;
+    if (s.tipo === "anticipo") {
+      return [
+        { cuenta:"6122900001", desc:"Pasajes (estimado)",  monto: Math.round(total*0.40), isCFDI:false },
+        { cuenta:"6122900003", desc:"Hospedaje (estimado)", monto: Math.round(total*0.35), isCFDI:false },
+        { cuenta:"6122900005", desc:"Comidas (estimado)",   monto: Math.round(total*0.20), isCFDI:false },
+        { cuenta:"6122900004", desc:"Otros (estimado)",     monto: Math.round(total*0.05), isCFDI:false },
+      ];
+    }
+    if (s.tipo === "reembolso") {
+      return [{ cuenta:"6122900005", desc:"Gasto sin desglose detallado", monto: total, isCFDI:false }];
+    }
+    return [];
+  })();
 
   // Agrupar por cuenta para el resumen de categorías
   const porCuenta = {};
