@@ -4424,17 +4424,19 @@ function AdminCatalogo() {
 function Deudores() {
   const hoy = window.HOY;
   const AÑOS = ["2026","2025","2024"];
-  const [anio,   setAnio]   = React.useState("2026");
-  const [centro, setCentro] = React.useState("todos");
-  const [tab,    setTab]    = React.useState("aging");
+  const [anio,      setAnio]      = React.useState("2026");
+  const [centro,    setCentro]    = React.useState("todos");
+  const [tab,       setTab]       = React.useState("aging");
+  const [mesFiltro, setMesFiltro] = React.useState(null);
 
   const solicsFilt = React.useMemo(() => window.SOLICITUDES.filter(s => {
     const u = window.findUser(s.usuario);
     if (!u) return false;
     if (String(s.fecha.getFullYear()) !== anio) return false;
     if (centro !== "todos" && u.centro !== centro) return false;
+    if (mesFiltro !== null && s.fecha.getMonth() !== mesFiltro) return false;
     return true;
-  }), [anio, centro]);
+  }), [anio, centro, mesFiltro]);
 
   // ── Antigüedad ──────────────────────────────────────────────────────────
   const ahoraSaldos = solicsFilt.filter(s => s.tipo==="anticipo" && (s.saldoPendiente||0)>0);
@@ -4669,21 +4671,45 @@ function Deudores() {
             <h3 className="card-title">Gasto mensual {anio}</h3>
             <div className="card-sub">Total de solicitudes por mes</div>
           </div>
-          <div style={{display:"flex",alignItems:"flex-end",gap:8,height:BAR_H,padding:"0 4px"}}>
+          {mesFiltro !== null && (
+            <div style={{marginBottom:10,padding:"6px 12px",background:"var(--accent-soft,rgba(197,242,77,.12))",
+              borderRadius:8,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <span style={{fontSize:12,color:"var(--accent)",fontWeight:500}}>
+                Filtrando: {meses[mesFiltro]} {anio}
+              </span>
+              <button onClick={()=>setMesFiltro(null)}
+                style={{background:"none",border:"1px solid var(--accent)",color:"var(--accent)",
+                  borderRadius:6,padding:"2px 8px",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>
+                × Quitar filtro
+              </button>
+            </div>
+          )}
+          <div style={{display:"flex",alignItems:"flex-end",gap:4,height:BAR_H,padding:"0 4px"}}>
             {gastoMensual.map((v,i)=>{
               const pct=mesMax>0?v/mesMax:0;
               const barH=Math.max(pct*BAR_H,v>0?4:0);
-              const isCurrent=i===hoy.getMonth()&&anio==="2026";
+              const isSelected=mesFiltro===i;
+              const isCurrent=i===hoy.getMonth()&&anio==="2026"&&mesFiltro===null;
+              const opacity=mesFiltro!==null&&!isSelected?0.35:1;
               return (
-                <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,height:"100%",justifyContent:"flex-end"}}>
-                  {v>0&&<div style={{fontSize:9,color:"var(--text-3)",whiteSpace:"nowrap"}}>{window.fmtMXN(v).replace("$","$").slice(0,8)}</div>}
+                <div key={i} onClick={()=>setMesFiltro(mesFiltro===i?null:i)}
+                  style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,height:"100%",
+                    justifyContent:"flex-end",cursor:"pointer",opacity,transition:"opacity .2s"}}>
+                  {v>0&&<div style={{fontSize:9,color:isSelected?"var(--accent)":"var(--text-3)",whiteSpace:"nowrap",fontWeight:isSelected?600:400}}>
+                    {window.fmtMXN(v).replace(/\.00$/,"").slice(0,9)}
+                  </div>}
                   <div style={{width:"100%",height:barH,borderRadius:"3px 3px 0 0",
-                    background:isCurrent?"var(--accent)":"var(--accent-soft,rgba(197,242,77,.3))",
-                    transition:"height .4s"}}/>
-                  <div style={{fontSize:10,color:isCurrent?"var(--accent)":"var(--text-3)",fontWeight:isCurrent?600:400}}>{meses[i]}</div>
+                    background:isSelected?"var(--accent)":isCurrent?"var(--accent)":"var(--accent-soft,rgba(197,242,77,.3))",
+                    transition:"all .25s",boxShadow:isSelected?"0 0 8px var(--accent)":"none"}}/>
+                  <div style={{fontSize:10,
+                    color:isSelected?"var(--accent)":isCurrent?"var(--accent)":"var(--text-3)",
+                    fontWeight:isSelected||isCurrent?600:400}}>{meses[i]}</div>
                 </div>
               );
             })}
+          </div>
+          <div style={{fontSize:11,color:"var(--text-3)",marginTop:8,textAlign:"center"}}>
+            Clic en una barra para filtrar todas las vistas por ese mes
           </div>
         </div>
       )}
@@ -4695,16 +4721,18 @@ function Deudores() {
 function Reportes() {
   const hoy  = window.HOY;
   const AÑOS = ["2026","2025","2024"];
-  const [anio,   setAnio]   = React.useState("2026");
-  const [centro, setCentro] = React.useState("todos");
+  const [anio,      setAnio]      = React.useState("2026");
+  const [centro,    setCentro]    = React.useState("todos");
+  const [mesFiltro, setMesFiltro] = React.useState(null); // null = todos los meses
 
   const solicsFilt = React.useMemo(() => window.SOLICITUDES.filter(s => {
     const u = window.findUser(s.usuario);
     if (!u) return false;
     if (String(s.fecha.getFullYear()) !== anio) return false;
     if (centro !== "todos" && u.centro !== centro) return false;
+    if (mesFiltro !== null && s.fecha.getMonth() !== mesFiltro) return false;
     return true;
-  }), [anio, centro]);
+  }), [anio, centro, mesFiltro]);
 
   const totalGasto    = solicsFilt.reduce((a,s)=>a+s.monto,0);
   const totalLiberado = solicsFilt.filter(s=>["liberado","comprobado"].includes(s.status)).reduce((a,s)=>a+s.monto,0);
@@ -4888,20 +4916,38 @@ function Reportes() {
           <h3 className="card-title">Gasto mensual {anio}</h3>
           <div className="card-sub">total de solicitudes por mes</div>
         </div>
-        <div style={{display:"flex",alignItems:"flex-end",gap:8,height:BAR_H,padding:"0 4px"}}>
+        {mesFiltro !== null && (
+          <div style={{marginBottom:10,padding:"6px 12px",background:"var(--accent-soft,rgba(197,242,77,.12))",
+            borderRadius:8,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span style={{fontSize:12,color:"var(--accent)",fontWeight:500}}>
+              Filtrando: {meses[mesFiltro]} {anio} — todos los gráficos actualizados
+            </span>
+            <button onClick={()=>setMesFiltro(null)}
+              style={{background:"none",border:"1px solid var(--accent)",color:"var(--accent)",
+                borderRadius:6,padding:"2px 8px",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>
+              × Quitar filtro
+            </button>
+          </div>
+        )}
+        <div style={{display:"flex",alignItems:"flex-end",gap:4,height:BAR_H,padding:"0 4px"}}>
           {gastoMensual.map((v,i)=>{
             const pct=mesMax>0?v/mesMax:0;
             const barH=Math.max(pct*BAR_H,v>0?4:0);
-            const isCurrent=i===hoy.getMonth()&&anio==="2026";
+            const isSelected=mesFiltro===i;
+            const isCurrent=i===hoy.getMonth()&&anio==="2026"&&mesFiltro===null;
+            const opacity=mesFiltro!==null&&!isSelected?0.35:1;
             return (
-              <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,height:"100%",justifyContent:"flex-end"}}>
+              <div key={i} onClick={()=>setMesFiltro(mesFiltro===i?null:i)}
+                style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",
+                  gap:4,height:"100%",justifyContent:"flex-end",cursor:"pointer",
+                  opacity,transition:"opacity .2s"}}>
                 {v>0&&<div style={{fontSize:9,color:"var(--text-3)",whiteSpace:"nowrap"}}>{window.fmtMXN(v).replace("$","").replace(",000","k").slice(0,6)}</div>}
                 <div style={{
                   width:"100%",height:barH,borderRadius:"3px 3px 0 0",
                   background:isCurrent?"var(--accent)":"var(--accent-soft,rgba(197,242,77,.3))",
                   transition:"height .4s",
                 }}/>
-                <div style={{fontSize:10,color:isCurrent?"var(--accent)":"var(--text-3)",fontWeight:isCurrent?600:400}}>
+                <div style={{fontSize:10,color:isSelected?"var(--accent)":isCurrent?"var(--accent)":"var(--text-3)",fontWeight:isSelected||isCurrent?600:400}}>
                   {meses[i]}
                 </div>
               </div>
@@ -6448,7 +6494,7 @@ const VALID_PAGES = {
   usuario:  ["dash","anticipos","comprobaciones","reembolsos","perfil"],
   gerente:  ["bandeja","equipo","historial","reportes","perfil","mis-solicitudes","anticipos","reembolsos","comprobaciones"],
   tesoreria:["liberacion","pagados","deudores","reportes","perfil"],
-  admin:    ["usuarios","centros","catalogo","reportes","ajustes","perfil"],
+  admin:    ["usuarios","centros","catalogo","reportes","ajustes","perfil","liberacion","pagados","deudores","polizas","bandeja","equipo","historial","dash","anticipos","comprobaciones","reembolsos","mis-solicitudes"],
   contador: ["polizas","catalogo","perfil"],
 };
 
@@ -6486,11 +6532,28 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
   }
 
   if (role === "admin") {
+    // Admin páginas propias
     if (page === "usuarios")  return <AdminUsuarios/>;
     if (page === "centros")   return <AdminCentros/>;
     if (page === "catalogo")  return <AdminCatalogo/>;
     if (page === "reportes")  return <Reportes/>;
     if (page === "ajustes")   return <AdminAjustes/>;
+    // Admin operando como tesorería
+    if (page === "liberacion") return <TesoreriaBandeja openDetail={setDetailId}/>;
+    if (page === "pagados")    return <TesoreriaPagados openDetail={setDetailId}/>;
+    if (page === "deudores")   return <Deudores/>;
+    // Admin operando como gerente
+    if (page === "bandeja")         return <GerenteBandeja openDetail={setDetailId}/>;
+    if (page === "equipo")          return <GerenteEquipo/>;
+    if (page === "historial")       return <GerenteHistorial openDetail={setDetailId}/>;
+    // Admin operando como usuario
+    if (page === "dash")            return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
+    if (page === "anticipos")       return <SolicitarAnticipo setPage={setPage}/>;
+    if (page === "comprobaciones")  return <NuevaComprobacion setPage={setPage}/>;
+    if (page === "reembolsos")      return <Reembolsos userId={userId}/>;
+    if (page === "mis-solicitudes") return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
+    // Admin operando como contador
+    if (page === "polizas")  return <ContadorPolizas/>;
     return <AdminUsuarios/>;
   }
   if (role === "contador") {
