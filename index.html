@@ -4423,37 +4423,58 @@ function AdminCatalogo() {
 
 function Deudores() {
   const hoy = window.HOY;
+  const AÑOS = ["2026","2025","2024"];
   const [anio,   setAnio]   = React.useState("2026");
   const [centro, setCentro] = React.useState("todos");
+  const [tab,    setTab]    = React.useState("aging");
 
-  const solicsFilt = window.SOLICITUDES.filter(s => {
+  const solicsFilt = React.useMemo(() => window.SOLICITUDES.filter(s => {
     const u = window.findUser(s.usuario);
     if (!u) return false;
     if (String(s.fecha.getFullYear()) !== anio) return false;
     if (centro !== "todos" && u.centro !== centro) return false;
     return true;
-  });
+  }), [anio, centro]);
 
-  const ahoraSaldos = solicsFilt.filter(s => s.tipo==="anticipo" && (s.saldoPendiente||0) > 0);
-
+  // ── Antigüedad ──────────────────────────────────────────────────────────
+  const ahoraSaldos = solicsFilt.filter(s => s.tipo==="anticipo" && (s.saldoPendiente||0)>0);
   const buckets = {"0-15":[],"16-30":[],"31-60":[],"60+":[]};
   ahoraSaldos.forEach(s => {
-    const d = Math.floor((hoy - s.fecha)/86400000);
+    const d = Math.floor((hoy-s.fecha)/86400000);
     if (d<=15) buckets["0-15"].push(s);
     else if (d<=30) buckets["16-30"].push(s);
     else if (d<=60) buckets["31-60"].push(s);
     else buckets["60+"].push(s);
   });
   const sumB = k => buckets[k].reduce((a,s)=>a+(s.saldoPendiente||0),0);
+  const totalSaldos = ahoraSaldos.reduce((a,s)=>a+(s.saldoPendiente||0),0);
 
+  // ── Top deudores ────────────────────────────────────────────────────────
   const porUser = {};
   ahoraSaldos.forEach(s => { porUser[s.usuario]=(porUser[s.usuario]||0)+(s.saldoPendiente||0); });
   const topDeudores = Object.entries(porUser)
     .map(([uid,m])=>({u:window.findUser(uid),monto:m}))
     .filter(d=>d.u).sort((a,b)=>b.monto-a.monto);
 
-  const totalSaldos = ahoraSaldos.reduce((a,s)=>a+(s.saldoPendiente||0),0);
+  // ── Por área ────────────────────────────────────────────────────────────
+  const porCentro = {};
+  solicsFilt.forEach(s => {
+    const u=window.findUser(s.usuario); if(!u)return;
+    const c=window.findCentro(u.centro);
+    const k=c?c.nombre:u.centro;
+    porCentro[k]=(porCentro[k]||0)+s.monto;
+  });
+  const centroMax = Math.max(...Object.values(porCentro),1);
+  const totalGasto = solicsFilt.reduce((a,s)=>a+s.monto,0);
 
+  // ── Gasto mensual ───────────────────────────────────────────────────────
+  const meses=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+  const gastoMensual=Array(12).fill(0);
+  solicsFilt.forEach(s=>{ gastoMensual[s.fecha.getMonth()]+=s.monto; });
+  const mesMax=Math.max(...gastoMensual,1);
+  const BAR_H=160;
+
+  // ── Exportar ────────────────────────────────────────────────────────────
   const exportar = () => {
     const rows=[["Folio","Concepto","Usuario","Centro","Saldo","Días","Bucket"]];
     ahoraSaldos.sort((a,b)=>a.fecha-b.fecha).forEach(s=>{
@@ -4465,8 +4486,15 @@ function Deudores() {
     const csv=rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(",")).join('\n');
     const a=document.createElement("a");
     a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);
-    a.download="deudores_"+anio+".csv";a.click();
+    a.download="deudores_"+anio+".csv"; a.click();
   };
+
+  const TABS = [
+    {k:"aging",   label:"Antigüedad de saldos"},
+    {k:"top",     label:"Top deudores"},
+    {k:"centro",  label:"Por área (centro)"},
+    {k:"mensual", label:"Gasto mensual"},
+  ];
 
   return (
     <>
@@ -4476,10 +4504,10 @@ function Deudores() {
           <div className="page-sub">Antigüedad de saldos · anticipos sin comprobar</div>
         </div>
         <div className="row">
-          <select className="select" value={anio} onChange={e=>setAnio(e.target.value)}>
-            {["2026","2025","2024"].map(a=><option key={a} value={a}>{a}</option>)}
+          <select className="select" value={anio} onChange={e=>{setAnio(e.target.value);}}>
+            {AÑOS.map(a=><option key={a} value={a}>{a}</option>)}
           </select>
-          <select className="select" value={centro} onChange={e=>setCentro(e.target.value)}>
+          <select className="select" value={centro} onChange={e=>{setCentro(e.target.value);}}>
             <option value="todos">Todos los centros</option>
             {window.CENTROS.map(c=><option key={c.id} value={c.id}>{c.id} · {c.nombre}</option>)}
           </select>
@@ -4487,8 +4515,8 @@ function Deudores() {
         </div>
       </div>
 
-      {/* Aging buckets */}
-      <div className="kpi-grid" style={{gridTemplateColumns:"repeat(4,1fr)"}}>
+      {/* KPIs de saldo */}
+      <div className="kpi-grid" style={{gridTemplateColumns:"repeat(4,1fr)",marginBottom:14}}>
         {[
           {k:"0-15",  label:"0–15 días",  color:"var(--success,#1d9e75)"},
           {k:"16-30", label:"16–30 días", color:"var(--warn,#ef9f27)"},
@@ -4503,75 +4531,166 @@ function Deudores() {
         ))}
       </div>
 
-      {/* Top deudores */}
-      <div className="card" style={{marginBottom:14}}>
-        <div className="card-head">
-          <h3 className="card-title">Top deudores · saldo pendiente</h3>
-          <div className="card-sub">Total: {window.fmtMXN(totalSaldos)}</div>
+      {/* Tabs */}
+      <div style={{display:"flex",gap:0,borderBottom:"1px solid var(--border)",marginBottom:16}}>
+        {TABS.map(t=>(
+          <div key={t.k} onClick={()=>setTab(t.k)}
+            style={{padding:"8px 18px",cursor:"pointer",fontSize:13,fontWeight:500,
+              borderBottom:tab===t.k?"2px solid var(--accent)":"2px solid transparent",
+              color:tab===t.k?"var(--text)":"var(--text-3)",transition:"all .15s"}}>
+            {t.label}
+          </div>
+        ))}
+      </div>
+
+      {/* Tab: Antigüedad de saldos */}
+      {tab==="aging" && (
+        <div className="card" style={{padding:0}}>
+          <div className="card-head" style={{padding:"14px 16px 10px"}}>
+            <h3 className="card-title">Antigüedad de saldos</h3>
+            <div className="card-sub">Anticipos sin comprobar · {anio}</div>
+          </div>
+          <table className="t">
+            <thead><tr><th>Folio</th><th>Concepto</th><th>Usuario</th><th className="right">Saldo</th><th>Días</th><th>Bucket</th></tr></thead>
+            <tbody>
+              {ahoraSaldos.length===0
+                ? <tr><td colSpan={6} style={{textAlign:"center",padding:"24px",color:"var(--text-3)"}}>Sin saldos pendientes para este filtro</td></tr>
+                : ahoraSaldos.sort((a,b)=>a.fecha-b.fecha).map(s=>{
+                    const u=window.findUser(s.usuario);
+                    const dias=Math.floor((hoy-s.fecha)/86400000);
+                    const bk=dias<=15?"0-15":dias<=30?"16-30":dias<=60?"31-60":"60+";
+                    const col=dias>60?"var(--danger)":dias>30?"#e88a27":dias>15?"var(--warn)":"var(--success)";
+                    return (
+                      <tr key={s.id}>
+                        <td className="id-cell">{s.id}</td>
+                        <td style={{maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.concepto}</td>
+                        <td><div className="row"><div className="avatar sm">{u.iniciales}</div><span style={{fontSize:13}}>{u.nombre}</span></div></td>
+                        <td className="num" style={{fontWeight:600,color:col}}>{window.fmtMXN(s.saldoPendiente)}</td>
+                        <td style={{fontWeight:600,color:col}}>{dias}d</td>
+                        <td><span className="badge" style={{background:col+"22",color:col,border:"none"}}>{bk} días</span></td>
+                      </tr>
+                    );
+                  })
+              }
+            </tbody>
+          </table>
         </div>
-        {topDeudores.length===0 ? (
-          <div className="empty"><div className="empty-ic"><Icon name="check" size={20}/></div>
-            <div style={{fontWeight:600,color:"var(--text)"}}>Sin deudores</div></div>
-        ) : (
-          <div style={{display:"flex",flexDirection:"column",gap:10,padding:"4px 0"}}>
-            {topDeudores.map((d,i)=>{
-              const pct=totalSaldos>0?Math.round(d.monto/totalSaldos*100):0;
-              const c=window.findCentro(d.u.centro);
-              const diasMax=Math.max(...ahoraSaldos.filter(s=>s.usuario===d.u.id).map(s=>Math.floor((hoy-s.fecha)/86400000)),0);
-              const barColor=diasMax>60?"var(--danger)":diasMax>30?"#e88a27":diasMax>15?"var(--warn)":"var(--success)";
+      )}
+
+      {/* Tab: Top deudores */}
+      {tab==="top" && (
+        <div className="card">
+          <div className="card-head">
+            <h3 className="card-title">Top deudores</h3>
+            <div className="card-sub">Saldo total: {window.fmtMXN(totalSaldos)}</div>
+          </div>
+          {topDeudores.length===0
+            ? <div className="empty"><div className="empty-ic"><Icon name="check" size={20}/></div><div style={{fontWeight:600,color:"var(--text)"}}>Sin deudores</div></div>
+            : (
+              <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                {topDeudores.map((d,i)=>{
+                  const pct=totalSaldos>0?Math.round(d.monto/totalSaldos*100):0;
+                  const c=window.findCentro(d.u.centro);
+                  const diasMax=Math.max(...ahoraSaldos.filter(s=>s.usuario===d.u.id).map(s=>Math.floor((hoy-s.fecha)/86400000)),0);
+                  const barColor=diasMax>60?"var(--danger)":diasMax>30?"#e88a27":diasMax>15?"var(--warn)":"var(--success)";
+                  return (
+                    <div key={d.u.id} style={{display:"grid",gridTemplateColumns:"200px 1fr 130px 80px",gap:12,alignItems:"center"}}>
+                      <div className="row" style={{gap:8}}>
+                        <div style={{width:18,height:18,borderRadius:"50%",background:"var(--surface-3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:600,flexShrink:0,color:"var(--text-3)"}}>{i+1}</div>
+                        <div className="avatar sm">{d.u.iniciales}</div>
+                        <div>
+                          <div style={{fontSize:13,fontWeight:500}}>{d.u.nombre}</div>
+                          <div className="muted mono" style={{fontSize:10}}>{c?c.id:d.u.centro}</div>
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{height:6,background:"var(--surface-3,rgba(255,255,255,.08))",borderRadius:3,overflow:"hidden"}}>
+                          <div style={{height:"100%",width:pct+"%",background:barColor,borderRadius:3,transition:"width .3s"}}/>
+                        </div>
+                      </div>
+                      <div className="num" style={{fontWeight:600,color:barColor}}>{window.fmtMXN(d.monto)}</div>
+                      <div className="muted" style={{fontSize:11,textAlign:"right"}}>{diasMax}d máx</div>
+                    </div>
+                  );
+                })}
+              </div>
+            )
+          }
+        </div>
+      )}
+
+      {/* Tab: Por área */}
+      {tab==="centro" && (
+        <div className="card" style={{padding:0}}>
+          <div className="card-head" style={{padding:"14px 16px 10px"}}>
+            <h3 className="card-title">Por área / centro de beneficio</h3>
+            <div className="card-sub">Gasto ejercido {anio} · total {window.fmtMXN(totalGasto)}</div>
+          </div>
+          {Object.keys(porCentro).length===0
+            ? <div style={{padding:"24px",textAlign:"center",color:"var(--text-3)",fontSize:12.5}}>Sin datos para este filtro</div>
+            : (
+              <table className="t">
+                <thead><tr><th>Centro de beneficio</th><th>Clave</th><th className="right">Solicitudes</th><th className="right">Gasto total</th><th style={{width:160}}>Participación</th></tr></thead>
+                <tbody>
+                  {Object.entries(porCentro).sort((a,b)=>b[1]-a[1]).map(([nombre,monto])=>{
+                    const pct=Math.round(monto/centroMax*100);
+                    const pctTotal=Math.round(monto/Math.max(totalGasto,1)*100);
+                    const cnt=solicsFilt.filter(s=>{const u=window.findUser(s.usuario);const c=u&&window.findCentro(u.centro);return c?c.nombre===nombre:false;}).length;
+                    return (
+                      <tr key={nombre}>
+                        <td style={{fontWeight:500}}>{nombre}</td>
+                        <td className="mono muted" style={{fontSize:11}}>
+                          {(window.CENTROS.find(c=>c.nombre===nombre)||{}).id||"—"}
+                        </td>
+                        <td className="num">{cnt}</td>
+                        <td className="num" style={{fontWeight:600}}>{window.fmtMXN(monto)}</td>
+                        <td>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <div style={{flex:1,height:6,background:"var(--surface-3,rgba(255,255,255,.08))",borderRadius:3,overflow:"hidden"}}>
+                              <div style={{height:"100%",width:pct+"%",background:"var(--accent)",borderRadius:3}}/>
+                            </div>
+                            <span style={{fontSize:11,color:"var(--text-3)",width:30,textAlign:"right"}}>{pctTotal}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )
+          }
+        </div>
+      )}
+
+      {/* Tab: Gasto mensual */}
+      {tab==="mensual" && (
+        <div className="card">
+          <div className="card-head">
+            <h3 className="card-title">Gasto mensual {anio}</h3>
+            <div className="card-sub">Total de solicitudes por mes</div>
+          </div>
+          <div style={{display:"flex",alignItems:"flex-end",gap:8,height:BAR_H,padding:"0 4px"}}>
+            {gastoMensual.map((v,i)=>{
+              const pct=mesMax>0?v/mesMax:0;
+              const barH=Math.max(pct*BAR_H,v>0?4:0);
+              const isCurrent=i===hoy.getMonth()&&anio==="2026";
               return (
-                <div key={d.u.id} style={{display:"grid",gridTemplateColumns:"200px 1fr 120px 80px",gap:12,alignItems:"center"}}>
-                  <div className="row" style={{gap:8}}>
-                    <div className="avatar sm">{d.u.iniciales}</div>
-                    <div>
-                      <div style={{fontSize:13,fontWeight:500}}>{d.u.nombre}</div>
-                      <div className="muted mono" style={{fontSize:10}}>{c?c.id:d.u.centro}</div>
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{height:6,background:"var(--surface-3,rgba(255,255,255,.08))",borderRadius:3,overflow:"hidden"}}>
-                      <div style={{height:"100%",width:pct+"%",background:barColor,borderRadius:3,transition:"width .3s"}}/>
-                    </div>
-                  </div>
-                  <div className="num" style={{fontWeight:600,color:barColor}}>{window.fmtMXN(d.monto)}</div>
-                  <div className="muted" style={{fontSize:11,textAlign:"right"}}>{diasMax}d máx</div>
+                <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,height:"100%",justifyContent:"flex-end"}}>
+                  {v>0&&<div style={{fontSize:9,color:"var(--text-3)",whiteSpace:"nowrap"}}>{window.fmtMXN(v).replace("$","$").slice(0,8)}</div>}
+                  <div style={{width:"100%",height:barH,borderRadius:"3px 3px 0 0",
+                    background:isCurrent?"var(--accent)":"var(--accent-soft,rgba(197,242,77,.3))",
+                    transition:"height .4s"}}/>
+                  <div style={{fontSize:10,color:isCurrent?"var(--accent)":"var(--text-3)",fontWeight:isCurrent?600:400}}>{meses[i]}</div>
                 </div>
               );
             })}
           </div>
-        )}
-      </div>
-
-      {/* Tabla detallada */}
-      <div className="card" style={{padding:0}}>
-        <table className="t">
-          <thead><tr><th>Folio</th><th>Concepto</th><th>Usuario</th><th className="right">Saldo</th><th>Días</th><th>Antigüedad</th></tr></thead>
-          <tbody>
-            {ahoraSaldos.length===0
-              ? <tr><td colSpan={6} style={{textAlign:"center",padding:"24px",color:"var(--text-3)"}}>Sin saldos pendientes para este filtro</td></tr>
-              : ahoraSaldos.sort((a,b)=>a.fecha-b.fecha).map(s=>{
-                  const u=window.findUser(s.usuario);
-                  const dias=Math.floor((hoy-s.fecha)/86400000);
-                  const bk=dias<=15?"0-15":dias<=30?"16-30":dias<=60?"31-60":"60+";
-                  const col=dias>60?"var(--danger)":dias>30?"#e88a27":dias>15?"var(--warn)":"var(--success)";
-                  return (
-                    <tr key={s.id}>
-                      <td className="id-cell">{s.id}</td>
-                      <td style={{maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.concepto}</td>
-                      <td><div className="row"><div className="avatar sm">{u.iniciales}</div><span style={{fontSize:13}}>{u.nombre}</span></div></td>
-                      <td className="num" style={{fontWeight:600,color:col}}>{window.fmtMXN(s.saldoPendiente)}</td>
-                      <td style={{fontWeight:600,color:col}}>{dias}d</td>
-                      <td><span className="badge" style={{background:col+"22",color:col,border:"none"}}>{bk} días</span></td>
-                    </tr>
-                  );
-                })
-            }
-          </tbody>
-        </table>
-      </div>
+        </div>
+      )}
     </>
   );
 }
+
 
 function Reportes() {
   const hoy  = window.HOY;
