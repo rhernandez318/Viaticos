@@ -5852,7 +5852,12 @@ function DetalleModal({ id, onClose }) {
   );
 }
 
-
+Object.assign(window, {
+  GerenteBandeja, TesoreriaBandeja, GerenteEquipo, GerenteHistorial,
+  TesoreriaPagados, AdminUsuarios, AdminCentros, AdminCatalogo,
+  Deudores, Reportes, ContadorPolizas, EditableCell,
+  descargarTodosAdjuntos, DetalleModal, EditModal, AdminAjustes,
+});
 
 // ═══ mobile ═══
 // Viáticos — Mobile (usuario en celular)
