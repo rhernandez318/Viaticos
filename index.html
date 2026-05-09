@@ -5615,7 +5615,244 @@ function EditableCell({ value, placeholder, onChange }) {
   );
 }
 
-Object.assign(window, { GerenteBandeja, TesoreriaBandeja, AdminUsuarios, AdminCentros, AdminCatalogo, Reportes, DetalleModal, EditModal });
+
+// ── Descarga todos los adjuntos de una solicitud ────────────────────────────
+function descargarTodosAdjuntos(solicitudId, folio) {
+  const s = window.SOLICITUDES.find(x => x.id === (solicitudId || folio));
+  const archivos = s && s.cfdi && s.cfdi.length > 0
+    ? s.cfdi.map((cf, i) => ({
+        nombre: `${(s||{}).id||folio}_${(cf.emisor||"factura").replace(/[^a-zA-Z0-9]/g,"_").slice(0,20)}_${i+1}`,
+        uuid: cf.uuid || cf.uuidFull || null, emisor: cf.emisor || null, total: cf.total || 0,
+      }))
+    : s && s.comprobantes > 0
+      ? Array.from({length: s.comprobantes}, (_,i) => ({
+          nombre: `${(s||{}).id||folio}_comprobante_${i+1}`,
+          uuid: null, emisor: null, total: null,
+        }))
+      : [];
+  if (!archivos.length) { alert("No hay comprobantes adjuntos registrados en esta solicitud."); return; }
+  archivos.forEach((f, i) => {
+    setTimeout(() => {
+      const xmlContent = f.uuid
+        ? `<?xml version="1.0" encoding="UTF-8"?><Comprobante UUID="${f.uuid}" Emisor="${f.emisor||""}" Total="${f.total||0}" Folio="${folio}"/>`
+        : `<?xml version="1.0" encoding="UTF-8"?><Comprobante Folio="${folio}" Archivo="${i+1}"/>`;
+      const ax = document.createElement("a");
+      ax.href = "data:application/xml;charset=utf-8," + encodeURIComponent(xmlContent);
+      ax.download = `${f.nombre}.xml`; ax.click();
+      setTimeout(() => {
+        const pdfText = [`%PDF-1.4`,`% UUID: ${f.uuid||"—"}`,`% Emisor: ${f.emisor||"—"}`,`% Total: $${f.total||0}`].join("\n");
+        const ap = document.createElement("a");
+        ap.href = "data:application/pdf;charset=utf-8," + encodeURIComponent(pdfText);
+        ap.download = `${f.nombre}.pdf`; ap.click();
+      }, 300);
+    }, i * 800);
+  });
+}
+
+function DetalleModal({ id, onClose }) {
+  const s = window.SOLICITUDES.find(x => x.id === id);
+  if (!s) return null;
+  const u = window.findUser(s.usuario);
+  const c = window.findCentro(u.centro);
+
+  const dates = {
+    solicitado: s.fecha,
+    autorizado: ["autorizado","liberado","comprobado","parcial"].includes(s.status) ? new Date(s.fecha.getTime() + 86400000) : null,
+    liberado:   ["liberado","comprobado","parcial"].includes(s.status) ? new Date(s.fecha.getTime() + 86400000*2) : null,
+    comprobado: s.status === "comprobado" ? new Date(s.fecha.getTime() + 86400000*5) : null,
+  };
+
+  const lineas = (() => {
+    if (s.cfdi && s.cfdi.length > 0) return s.cfdi.map(cf => ({
+      cuenta: cf.cuenta||"6121200001", desc: cf.concepto||cf.emisor||"—",
+      monto: cf.total||0, uuid: cf.uuid||cf.uuidFull||null, emisor: cf.emisor||null,
+      iva: cf.iva||0, subtotal: cf.subtotal||0, isCFDI: true,
+    }));
+    const raw = s.items||s.desglose||[];
+    if (raw.length > 0) return raw.map(it => ({
+      cuenta: it.cuenta||it.code||it.expCode||"6121200001",
+      desc: it.desc||it.nombre||it.concepto||"—",
+      monto: parseFloat(it.amt||it.monto||it.total||0), isCFDI: false,
+    }));
+    const total = s.monto||0;
+    if (s.tipo==="anticipo") return [
+      {cuenta:"6122900001",desc:"Pasajes (estimado)",monto:Math.round(total*0.40),isCFDI:false},
+      {cuenta:"6122900003",desc:"Hospedaje (estimado)",monto:Math.round(total*0.35),isCFDI:false},
+      {cuenta:"6122900005",desc:"Comidas (estimado)",monto:Math.round(total*0.20),isCFDI:false},
+      {cuenta:"6122900004",desc:"Otros (estimado)",monto:Math.round(total*0.05),isCFDI:false},
+    ];
+    return [{cuenta:"6122900005",desc:"Gasto",monto:total,isCFDI:false}];
+  })();
+
+  const porCuenta = {};
+  lineas.forEach(l => {
+    const key=l.cuenta||"6121200001";
+    if (!porCuenta[key]) porCuenta[key]={monto:0,items:[]};
+    porCuenta[key].monto+=l.monto; porCuenta[key].items.push(l);
+  });
+  const totalLineas = lineas.reduce((a,l)=>a+l.monto,0);
+
+  const exportarResumen = () => {
+    const rows=[["Cuenta","Tipo de gasto","Descripción","Monto","UUID/Referencia"]];
+    lineas.forEach(l=>{
+      const meta=window.findCuenta(l.cuenta)||{nombre:"—"};
+      rows.push([l.cuenta||"—",meta.nombre,l.desc,l.monto,l.uuid||"—"]);
+    });
+    rows.push(["","","TOTAL",totalLineas,""]);
+    const csv=rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(",")).join('\n');
+    const a=document.createElement("a");
+    a.href="data:text/csv;charset=utf-8,"+encodeURIComponent(csv);
+    a.download=s.id+"_desglose.csv"; a.click();
+  };
+
+  const iconoGrupo={Transporte:"plane",Hospedaje:"calendar",Alimentos:"sparkle",Impuestos:"receipt",Otros:"file"};
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:720}}>
+        <div className="modal-head">
+          <div>
+            <h2 className="modal-title">{s.id}</h2>
+            <div className="card-sub" style={{marginTop:2}}>{s.concepto}</div>
+          </div>
+          <div className="row">
+            <TipoBadge tipo={s.tipo}/>
+            <StatusBadge status={s.status}/>
+            <div className="icon-btn" onClick={onClose}><Icon name="x" size={14}/></div>
+          </div>
+        </div>
+        <div className="modal-body">
+          <Stepper status={s.status} dates={dates}/>
+          <div className="form-grid cols-3" style={{marginTop:20}}>
+            <div className="field"><label>Solicitante</label>
+              <div className="row"><div className="avatar sm">{u.iniciales}</div>
+                <div><div style={{fontSize:13}}>{u.nombre}</div>
+                  <div className="muted mono" style={{fontSize:11}}>{u.correo}</div></div>
+              </div>
+            </div>
+            <div className="field"><label>Centro</label>
+              <div>{c?c.nombre:u.centro}<div className="muted mono" style={{fontSize:11}}>{c?c.id:""}</div></div>
+            </div>
+            <div className="field"><label>Monto</label>
+              <div className="mono" style={{fontSize:20,fontWeight:700}}>{window.fmtMXN(s.monto)}</div>
+            </div>
+          </div>
+
+          {lineas.length > 0 && (
+            <>
+              <div className="divider"></div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                <h3 className="card-title" style={{fontSize:14,margin:0}}>Desglose · {lineas.length} concepto{lineas.length>1?"s":""}</h3>
+                <button className="btn sm" onClick={exportarResumen}><Icon name="download" size={12}/> CSV</button>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))",gap:10,marginBottom:16}}>
+                {Object.entries(porCuenta).map(([ck,data])=>{
+                  const meta=window.findCuenta(ck)||{nombre:ck,grupo:"Otros"};
+                  const pct=totalLineas>0?(data.monto/totalLineas*100):0;
+                  return (
+                    <div key={ck} style={{background:"var(--surface-2,rgba(255,255,255,.05))",borderRadius:"var(--r-md,8px)",padding:"12px 14px",border:"1px solid var(--border)"}}>
+                      <div style={{fontSize:11,fontWeight:600,color:"var(--text-2)",marginBottom:4}}>{meta.nombre}</div>
+                      <div style={{fontSize:18,fontWeight:700,marginBottom:4}}>{window.fmtMXN(data.monto)}</div>
+                      <div style={{height:3,background:"var(--border)",borderRadius:2,overflow:"hidden"}}>
+                        <div style={{height:"100%",width:pct+"%",background:"var(--accent)",borderRadius:2}}/>
+                      </div>
+                      <div style={{fontSize:10,color:"var(--text-3)",marginTop:4}}>{pct.toFixed(0)}% · <span className="mono">{ck}</span></div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="table-wrap" style={{border:"none",padding:0}}>
+                <table className="t">
+                  <thead><tr><th>Tipo de gasto</th><th>Descripción</th>{lineas.some(l=>l.isCFDI)&&<th>UUID</th>}<th className="right">Importe</th></tr></thead>
+                  <tbody>
+                    {lineas.map((l,i)=>{
+                      const meta=window.findCuenta(l.cuenta)||{nombre:l.cuenta||"—",cuenta:l.cuenta||""};
+                      return (
+                        <tr key={i}>
+                          <td><div style={{fontSize:12,fontWeight:500}}>{meta.nombre}</div><div className="mono muted" style={{fontSize:10}}>{meta.cuenta}</div></td>
+                          <td style={{fontSize:12}}>{l.desc}{l.emisor&&l.emisor!==l.desc&&<div className="muted" style={{fontSize:11}}>{l.emisor}</div>}</td>
+                          {lineas.some(ln=>ln.isCFDI)&&<td className="mono muted" style={{fontSize:10}}>{l.uuid||"—"}</td>}
+                          <td className="num" style={{fontWeight:600}}>{window.fmtMXN(l.monto)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot><tr>
+                    <td colSpan={lineas.some(l=>l.isCFDI)?3:2} style={{textAlign:"right",padding:"8px 10px",fontWeight:600,borderTop:"1px solid var(--border)"}}>Total</td>
+                    <td className="num" style={{fontWeight:700,fontSize:15,borderTop:"1px solid var(--border)"}}>{window.fmtMXN(totalLineas)}</td>
+                  </tr></tfoot>
+                </table>
+              </div>
+            </>
+          )}
+
+          {(() => {
+            const archivos = s.cfdi&&s.cfdi.length>0
+              ? s.cfdi.map((cf,i)=>({nombre:`${s.id}_${(cf.emisor||"factura").replace(/[^a-zA-Z0-9]/g,"_").slice(0,20)}_${i+1}`,uuid:cf.uuid,tipo:"XML",total:cf.total}))
+              : s.comprobantes>0
+                ? Array.from({length:s.comprobantes},(_,i)=>({nombre:`${s.id}_comprobante_${i+1}`,tipo:"XML",total:null}))
+                : [];
+            if (!archivos.length) return null;
+            return (
+              <>
+                <div className="divider"></div>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                  <h3 className="card-title" style={{fontSize:14,margin:0}}>Archivos adjuntos <span className="muted" style={{fontWeight:400,fontSize:12,marginLeft:8}}>{archivos.length} archivo{archivos.length>1?"s":""}</span></h3>
+                  <button className="btn sm" onClick={()=>descargarTodosAdjuntos(s.id,s.id)}>
+                    <Icon name="download" size={12}/> Descargar todos ({archivos.length*2})
+                  </button>
+                </div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+                  {archivos.map((f,i)=>(
+                    <React.Fragment key={i}>
+                      <button onClick={()=>{const a=document.createElement("a");a.href="data:application/xml;charset=utf-8,"+encodeURIComponent(`<?xml version="1.0"?><Comprobante UUID="${f.uuid||""}" Folio="${s.id}" Archivo="${i+1}"/>`);a.download=`${f.nombre}.xml`;a.click();}}
+                        style={{display:"inline-flex",alignItems:"center",gap:7,padding:"6px 11px",borderRadius:"var(--r-md,8px)",border:"1px solid var(--border)",background:"var(--surface-1)",cursor:"pointer",fontFamily:"inherit",color:"var(--text)",fontSize:12}}>
+                        <span style={{background:"rgba(197,242,77,.15)",color:"var(--accent)",fontWeight:700,fontSize:9,padding:"2px 5px",borderRadius:4,fontFamily:"monospace"}}>XML</span>
+                        {f.nombre}<Icon name="download" size={11} style={{color:"var(--accent)"}}/>
+                      </button>
+                      <button onClick={()=>{const a=document.createElement("a");a.href="data:application/pdf;charset=utf-8,"+encodeURIComponent(`%PDF-1.4
+% ${f.nombre}
+% UUID: ${f.uuid||"—"}`);a.download=`${f.nombre}.pdf`;a.click();}}
+                        style={{display:"inline-flex",alignItems:"center",gap:7,padding:"6px 11px",borderRadius:"var(--r-md,8px)",border:"1px solid var(--border)",background:"var(--surface-1)",cursor:"pointer",fontFamily:"inherit",color:"var(--text)",fontSize:12}}>
+                        <span style={{background:"rgba(55,138,221,.15)",color:"var(--info,#378ADD)",fontWeight:700,fontSize:9,padding:"2px 5px",borderRadius:4,fontFamily:"monospace"}}>PDF</span>
+                        {f.nombre}<Icon name="download" size={11} style={{color:"var(--info)"}}/>
+                      </button>
+                    </React.Fragment>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
+
+          <div className="divider"></div>
+          <h3 className="card-title" style={{fontSize:14,marginBottom:12}}>Bitácora</h3>
+          <div className="timeline">
+            <div className="tl-row"><div className="tl-dot done"><Icon name="check" size={11}/></div>
+              <div className="tl-content"><div className="tl-title">{u.nombre} creó la solicitud</div><div className="tl-meta">{window.fmtFecha(s.fecha)}</div></div>
+            </div>
+            {dates.autorizado
+              ? <div className="tl-row"><div className="tl-dot done"><Icon name="check" size={11}/></div>
+                  <div className="tl-content"><div className="tl-title">Gerente autorizó</div><div className="tl-meta">{window.fmtFecha(dates.autorizado)}</div></div>
+                </div>
+              : <div className="tl-row"><div className="tl-dot">2</div>
+                  <div className="tl-content"><div className="tl-title muted">Esperando autorización</div></div>
+                </div>
+            }
+            {dates.liberado&&<div className="tl-row"><div className="tl-dot done"><Icon name="check" size={11}/></div>
+              <div className="tl-content"><div className="tl-title">Tesorería liberó fondos</div><div className="tl-meta">{window.fmtFecha(dates.liberado)}</div></div>
+            </div>}
+            {s.status==="rechazado"&&s.motivoRechazo&&<div className="tl-row">
+              <div className="tl-dot" style={{background:"var(--danger)",color:"#fff",border:"none"}}>✕</div>
+              <div className="tl-content"><div className="tl-title" style={{color:"var(--danger)"}}>Rechazado</div><div className="tl-note">{s.motivoRechazo}</div></div>
+            </div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 
 // ═══ mobile ═══
 // Viáticos — Mobile (usuario en celular)
