@@ -1431,35 +1431,6 @@ window.Icon = Icon;
 //     "dark": false
 //   }/*EDITMODE-END*/;
 //
-//   function App() {
-//     const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
-//     return (
-//       <div style={{ fontSize: t.fontSize, color: t.primaryColor }}>
-//         Hello
-//         <TweaksPanel>
-//           <TweakSection label="Typography" />
-//           <TweakSlider label="Font size" value={t.fontSize} min={10} max={32} unit="px"
-//                        onChange={(v) => setTweak('fontSize', v)} />
-//           <TweakRadio  label="Density" value={t.density}
-//                        options={['compact', 'regular', 'comfy']}
-//                        onChange={(v) => setTweak('density', v)} />
-//           <TweakSection label="Theme" />
-//           <TweakColor  label="Primary" value={t.primaryColor}
-//                        options={['#D97757', '#2A6FDB', '#1F8A5B', '#7A5AE0']}
-//                        onChange={(v) => setTweak('primaryColor', v)} />
-//           <TweakColor  label="Palette" value={t.palette}
-//                        options={[['#D97757', '#29261b', '#f6f4ef'],
-//                                  ['#475569', '#0f172a', '#f1f5f9']]}
-//                        onChange={(v) => setTweak('palette', v)} />
-//           <TweakToggle label="Dark mode" value={t.dark}
-//                        onChange={(v) => setTweak('dark', v)} />
-//         </TweaksPanel>
-//       </div>
-//     );
-//   }
-//
-// ─────────────────────────────────────────────────────────────────────────────
-
 const __TWEAKS_STYLE = `
   .twk-panel{position:fixed;right:16px;bottom:16px;z-index:2147483646;width:280px;
     max-height:calc(100vh - 32px);display:flex;flex-direction:column;
@@ -2039,10 +2010,9 @@ const ROLE_USERS = {
   contador: "C001",
 };
 
-function Sidebar({ role, page, setPage, onLogout }) {
+function Sidebar({ role, page, setPage, onLogout, userId: sidUserId }) {
   const items = NAV[role];
-  const userId = ROLE_USERS[role];
-  const u = window.findUser(userId);
+  const u = window.findUser(sidUserId) || { iniciales:"?", nombre:"Usuario", correo:"", rol: role };
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -2897,18 +2867,381 @@ function CompUploader({ onAdd }) {
       return null;
     }
   };
+  return (
+    <>
+      <div
+        className={`dropzone ${drag ? "drag" : ""}`}
+        onDragOver={e => { e.preventDefault(); setDrag(true); }}
+        onDragLeave={() => setDrag(false)}
+        onDrop={onDrop}
+        onClick={() => inputRef.current?.click()}
+        style={{cursor:"pointer"}}
+      >
+        <div className="dropzone-icon"><Icon name="upload" size={20}/></div>
+        <div className="dropzone-title">Arrastra XML + PDF de cada factura</div>
+        <div className="dropzone-sub">El sistema extrae RFC, fecha, monto e IVA automáticamente · Acepta múltiples archivos</div>
+        <div style={{marginTop:14}}>
+          <button className="btn" onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}>Seleccionar archivos</button>
+        </div>
+        <input ref={inputRef} type="file" multiple accept=".xml,.pdf,application/xml,application/pdf,text/xml"
+          style={{display:"none"}}
+          onChange={(e) => { if (e.target.files) processFiles(e.target.files); e.target.value = ""; }}
+        />
+      </div>
+      {files.length > 0 && (
+        <div style={{marginTop:14, display:"flex", gap:10, flexWrap:"wrap"}}>
+          {files.map((f, i) => (
+            <div key={i} className="file-chip" style={{flex:"1 1 240px"}}>
+              <div className="icon-box">{f.type}</div>
+              <div className="meta">
+                <div className="name">{f.name}</div>
+                <div className="sz">{(f.size/1024).toFixed(1)} KB · procesado</div>
+              </div>
+              <Icon name="check" size={14} style={{color:"var(--success)"}}/>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
 
-  
+function NuevaComprobacion({ setPage, userId = "U001" }) {
+  const [pendientes, setPendientes] = React.useState(() => window.SOLICITUDES.filter(s => s.tipo === "anticipo" && s.usuario === userId && ["autorizado","liberado","parcial"].includes(s.status) && (s.saldoPendiente||0) > 0));
+  const [anticipoSel, setAnticipoSel] = React.useState(null);
+  const [items, setItems] = React.useState(window.COMPROBANTES_DEMO);
+  const [editId, setEditId] = React.useState(null);
+  const [toast, setToast] = React.useState(null);
+
+  if (!anticipoSel) {
+    return (
+      <>
+        <div className="page-head">
+          <div>
+            <h1 className="page-title">Comprobaciones</h1>
+            <div className="page-sub">Selecciona el anticipo del que vas a comprobar gastos</div>
+          </div>
+          <button className="btn ghost" onClick={() => setPage && setPage("dash")}>Cancelar</button>
+        </div>
+
+        <div className="card" style={{marginBottom:14}}>
+          <div className="card-head">
+            <div>
+              <h3 className="card-title">Anticipos pendientes de comprobar ({pendientes.length})</h3>
+              <div className="card-sub">Anticipos autorizados o liberados con saldo abierto</div>
+            </div>
+          </div>
+          {pendientes.length === 0 ? (
+            <div className="muted" style={{fontSize:12.5, padding:"4px 0"}}>No tienes anticipos pendientes de comprobar.</div>
+          ) : (
+            <div className="table-wrap" style={{border:"none"}}>
+              <table className="t">
+                <thead><tr><th>Folio</th><th>Concepto</th><th>Fecha</th><th className="right">Anticipo</th><th className="right">Saldo</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                  {pendientes.map(a => (
+                    <tr key={a.id} onClick={() => setAnticipoSel(a)}>
+                      <td className="id-cell">{a.id}</td>
+                      <td>{a.concepto}</td>
+                      <td className="muted mono" style={{fontSize:12}}>{window.fmtFecha(a.fecha)}</td>
+                      <td className="num">{window.fmtMXN(a.monto)}</td>
+                      <td className="num"><strong>{window.fmtMXN(a.saldoPendiente)}</strong></td>
+                      <td><StatusBadge status={a.status}/></td>
+                      <td className="right"><button className="btn sm primary">Comprobar <Icon name="chevR" size={12}/></button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h3 className="card-title">¿Sin anticipo previo?</h3>
+              <div className="card-sub">Si pagaste de tu bolsa sin pedir anticipo, solicita un reembolso.</div>
+            </div>
+            <button className="btn" onClick={() => setPage && setPage("reembolsos")}><Icon name="refund" size={13}/> Ir a reembolsos</button>
+          </div>
+        </div>
+      </>
+    );
+  }
+  const updItem = (id, k, v) => setItems(items.map(i => i.id === id ? { ...i, [k]: k === "total" || k === "subtotal" || k === "iva" ? parseFloat(v) || 0 : v } : i));
+  const delItem = (id) => setItems(items.filter(i => i.id !== id));
+  const total = items.reduce((a,i) => a + i.total, 0);
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+  const [enviado, setEnviado] = React.useState(false);
+  const handleEnviar = () => {
+    if (enviado) return;
+    if (items.length === 0) { showToast("⚠ Agrega al menos un comprobante antes de enviar"); return; }
+    const totalComp = items.reduce((a, i) => a + (i.total || 0), 0);
+    const id = "CMP-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-4);
+    const nueva = {
+      id, tipo: "comprobacion",
+      concepto: "Comprobación " + (anticipoSel ? anticipoSel.id : ""),
+      usuario: userId, monto: totalComp, fecha: new Date(),
+      status: "solicitado", anticipoRef: anticipoSel ? anticipoSel.id : null,
+      comprobantes: items.length, cfdi: items, saldoPendiente: 0,
+    };
+    window.SOLICITUDES.unshift(nueva);
+    if (anticipoSel) {
+      const ant = window.SOLICITUDES.find(s => s.id === anticipoSel.id);
+      if (ant) {
+        ant.saldoPendiente = Math.max(0, (ant.saldoPendiente||0) - totalComp);
+        ant.status = ant.saldoPendiente <= 0 ? "comprobado" : "parcial";
+        if (window.calcSaldo) window.calcSaldo(anticipoSel.id);
+      }
+    }
+    setPendientes(prev => prev.filter(p => p.id !== (anticipoSel && anticipoSel.id)));
+    setEnviado(true);
+    showToast("✓ Comprobación " + id + " enviada a autorización");
+    setTimeout(() => setPage && setPage("dash"), 1400);
+  };
+  const handleBorrador = () => {
+    const id = `BOR-${Date.now().toString().slice(-6)}`;
+    window.BORRADORES = window.BORRADORES || [];
+    window.BORRADORES.push({ id, concepto: "Comprobación en captura", fecha: new Date(), tipo: "comprobacion", items });
+    showToast(`✓ Borrador ${id} guardado · velo en "Comprobaciones"`);
+  };
+  const handleCancelar = () => setPage && setPage("dash");
+
+  return (
+    <>
+      {toast && (
+        <div style={{position:"fixed", bottom:24, right:24, background:"var(--success-soft)", border:"1px solid oklch(from var(--success) l c h / 0.4)", color:"var(--success)", padding:"12px 18px", borderRadius:"var(--r-lg)", zIndex:100, fontWeight:500, fontSize:13}}>
+          {toast}
+        </div>
+      )}
+      <div className="page-head">
+        <div>
+          <button className="btn sm ghost" onClick={() => setAnticipoSel(null)} style={{marginBottom:8}}><Icon name="chevR" size={11} style={{transform:"rotate(180deg)"}}/> Volver a anticipos</button>
+          <h1 className="page-title">Comprobar {anticipoSel.id}</h1>
+          <div className="page-sub">{anticipoSel.concepto} · saldo {window.fmtMXN(anticipoSel.saldoPendiente)}</div>
+        </div>
+        <div className="row">
+          <button className="btn ghost" onClick={handleCancelar}>Cancelar</button>
+          <button className="btn" onClick={handleBorrador}>Guardar borrador</button>
+          <button className="btn primary" onClick={handleEnviar}>Enviar a autorización</button>
+        </div>
+      </div>
+
+      <div className="two-col">
+        <div>
+          <div className="card" style={{marginBottom:14}}>
+            <h3 className="card-title" style={{marginBottom:14}}>Sube tus comprobantes</h3>
+            <CompUploader onAdd={(newItems) => { setItems([...items, ...newItems]); showToast(`✓ ${newItems.length} archivo${newItems.length>1?"s":""} procesado${newItems.length>1?"s":""}`); }}/>
+          </div>
+
+          <div className="card">
+            <div className="card-head">
+              <div>
+                <h3 className="card-title">Comprobantes detectados</h3>
+                <div className="card-sub">{items.length} facturas · IVA y cuenta sugeridos automáticamente</div>
+              </div>
+              <div className="row">
+                <span className="muted" style={{fontSize:12}}>Total comprobado</span>
+                <strong className="mono" style={{fontSize:16}}>{window.fmtMXN(total)}</strong>
+              </div>
+            </div>
+            <div className="table-wrap" style={{border:"none"}}>
+              <table className="t">
+                <thead>
+                  <tr>
+                    <th>UUID</th>
+                    <th>Emisor</th>
+                    <th>Concepto</th>
+                    <th className="right">Total</th>
+                    <th>Cuenta sugerida</th>
+                    <th>Confianza</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map(c => {
+                    const cuenta = window.findCuenta(c.cuenta);
+                    const editing = editId === c.id;
+                    if (editing) {
+                      return (
+                        <tr key={c.id} style={{background:"var(--surface-2)"}}>
+                          <td className="id-cell">{c.uuid}</td>
+                          <td><input className="input" value={c.emisor} onChange={e => updItem(c.id, "emisor", e.target.value)}/></td>
+                          <td><input className="input" value={c.concepto} onChange={e => updItem(c.id, "concepto", e.target.value)}/></td>
+                          <td><input className="input mono" style={{textAlign:"right"}} value={c.total} onChange={e => updItem(c.id, "total", e.target.value)}/></td>
+                          <td>
+                            <select className="select" value={c.cuenta} onChange={e => updItem(c.id, "cuenta", e.target.value)}>
+                              {window.CATALOGO_GASTOS.map(g => <option key={g.cuenta} value={g.cuenta}>{g.cuenta} · {g.nombre}</option>)}
+                            </select>
+                          </td>
+                          <td><span className="muted" style={{fontSize:11}}>—</span></td>
+                          <td className="right">
+                            <div style={{display:"inline-flex", gap:4}}>
+                              <button className="icon-btn" onClick={() => setEditId(null)} title="Guardar"><Icon name="check" size={13}/></button>
+                              <button className="icon-btn" onClick={() => delItem(c.id)} title="Eliminar"><Icon name="x" size={13}/></button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return (
+                      <tr key={c.id}>
+                        <td className="id-cell">{c.uuid}</td>
+                        <td>{c.emisor}</td>
+                        <td className="muted">{c.concepto}</td>
+                        <td className="num">{window.fmtMXN(c.total)}</td>
+                        <td>
+                          <div style={{display:"flex", flexDirection:"column", gap:2}}>
+                            <span style={{fontSize:12.5}}>{cuenta.nombre}</span>
+                            <span className="mono muted" style={{fontSize:11}}>{cuenta.cuenta}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className={`conf ${c.confianza < 0.9 ? "warn" : ""}`}>
+                            <div className="meter"><div className="fill" style={{width: `${c.confianza*100}%`}}></div></div>
+                            {Math.round(c.confianza*100)}%
+                          </div>
+                        </td>
+                        <td className="right">
+                          <button className="icon-btn" onClick={() => setEditId(c.id)} title="Editar"><Icon name="settings" size={13}/></button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div className="card" style={{marginBottom:14}}>
+            <h3 className="card-title">Resumen</h3>
+            <div className="divider" style={{margin:"12px 0"}}></div>
+            <div className="spread"><span className="muted">Anticipo recibido</span><strong className="mono">{window.fmtMXN(anticipoSel.monto)}</strong></div>
+            <div className="spread" style={{marginTop:8}}><span className="muted">Total comprobado</span><strong className="mono">{window.fmtMXN(total)}</strong></div>
+            <div className="divider"></div>
+            <div className="spread">
+              <span style={{fontWeight:600}}>Saldo a devolver</span>
+              <strong className="mono" style={{fontSize:18, color:"var(--accent)"}}>{window.fmtMXN(anticipoSel.monto - total)}</strong>
+            </div>
+            <div className="card-sub" style={{marginTop:6}}>El usuario debe depositar este monto a tesorería</div>
+          </div>
+
+          <div className="card">
+            <h3 className="card-title">Por cuenta contable</h3>
+            <div className="divider" style={{margin:"12px 0"}}></div>
+            {(() => {
+              const groups = {};
+              items.forEach(c => { groups[c.cuenta] = (groups[c.cuenta] || 0) + c.total; });
+              return Object.entries(groups).map(([cuenta, monto]) => {
+                const meta = window.findCuenta(cuenta);
+                return (
+                  <div key={cuenta} className="spread" style={{padding:"6px 0"}}>
+                    <div>
+                      <div style={{fontSize:13}}>{meta.nombre}</div>
+                      <div className="mono muted" style={{fontSize:11}}>{cuenta}</div>
+                    </div>
+                    <strong className="mono">{window.fmtMXN(monto)}</strong>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Reembolsos({ userId }) {
+  const mine = window.SOLICITUDES.filter(s => s.usuario === userId && s.tipo === "reembolso");
+  const all = window.SOLICITUDES.filter(s => s.tipo === "reembolso");
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Reembolsos</h1>
+          <div className="page-sub">Gastos que pagaste de tu bolsa sin anticipo previo</div>
+        </div>
+        <button className="btn primary"><Icon name="plus" size={14}/> Nuevo reembolso</button>
+      </div>
+
+      <div className="kpi-grid" style={{gridTemplateColumns:"repeat(3, 1fr)"}}>
+        <div className="kpi">
+          <div className="kpi-label">En flujo</div>
+          <div className="kpi-value">{window.fmtMXN(2770)}</div>
+          <div className="kpi-delta neutral">2 solicitudes</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">Reembolsado este año</div>
+          <div className="kpi-value">{window.fmtMXN(8420)}</div>
+          <div className="kpi-delta up">12 solicitudes pagadas</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">Tiempo promedio de pago</div>
+          <div className="kpi-value">4.2 días</div>
+          <div className="kpi-delta up">−1.1 día vs. mes anterior</div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <h3 className="card-title">Mis reembolsos</h3>
+          <div className="row">
+            <button className="btn sm"><Icon name="filter" size={12}/> Filtros</button>
+            <button className="btn sm"><Icon name="download" size={12}/> Exportar</button>
+          </div>
+        </div>
+        <div className="table-wrap" style={{border:"none"}}>
+          <table className="t">
+            <thead>
+              <tr>
+                <th>Folio</th>
+                <th>Concepto</th>
+                <th>Fecha</th>
+                <th className="right">Monto</th>
+                <th>Status</th>
+                <th>Comprobantes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {all.map(r => (
+                <tr key={r.id}>
+                  <td className="id-cell">{r.id}</td>
+                  <td>
+                    <div>{r.concepto}</div>
+                    {r.motivoRechazo && <div style={{color:"var(--danger)", fontSize:11.5, marginTop:2}}>⚠ {r.motivoRechazo}</div>}
+                  </td>
+                  <td className="muted mono" style={{fontSize:12}}>{window.fmtFecha(r.fecha)}</td>
+                  <td className="num">{window.fmtMXN(r.monto)}</td>
+                  <td><StatusBadge status={r.status}/></td>
+                  <td className="muted mono" style={{fontSize:12}}>{r.comprobantes} archivos</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+Object.assign(window, { UserDashboard, SolicitarAnticipo, NuevaComprobacion, Reembolsos });
 
 // ═══ role-pages ═══
 // Viáticos — Gerente, Tesorería, Admin pages
 
-function GerenteBandeja({ openDetail }) {
-  const gerenteId = "U101";
-  const teamIds = window.USUARIOS.filter(u => u.gerente === gerenteId).map(u => u.id);
+function GerenteBandeja({ openDetail, userId }) {
+  const CENTRO_ADMIN = "100010009";
+  const userObj = userId ? window.findUser(userId) : null;
+  const esAdmin = userObj && userObj.centro === CENTRO_ADMIN;
+  const gerenteId = userId || "U101";
+  const teamIds = esAdmin
+    ? null  // admin de área ve todas las solicitudes
+    : window.USUARIOS.filter(u => u.gerente === gerenteId).map(u => u.id);
 
   const [items, setItems] = React.useState(() =>
-    window.SOLICITUDES.filter(s => s.status === "solicitado" && teamIds.includes(s.usuario))
+    window.SOLICITUDES.filter(s => s.status === "solicitado" && (teamIds === null || teamIds.includes(s.usuario)))
   );
   const [filtro, setFiltro]     = React.useState("todas");
   const [busqueda, setBusqueda] = React.useState("");
@@ -3493,7 +3826,6 @@ function AdminUsuarios() {
             {key:"gerente", label:"Reporta a", value:editing.gerente||"", type:"select",
               options:[{value:"", label:"— ninguno —"},
                 ...users.filter(u=>u.rol==="gerente").map(g=>({value:g.id,label:g.nombre}))]},
-            {key:"password", label:"Contraseña temporal (vacío = no cambiar)", value:"", type:"password", placeholder:"Nueva contraseña..."},
           ]}
           onClose={() => setEditing(null)}
           onSave={save}
@@ -3819,11 +4151,19 @@ function Deudores() {
   const solicsFilt = React.useMemo(() => window.SOLICITUDES.filter(s => {
     const u = window.findUser(s.usuario);
     if (!u) return false;
+    // Restricción de equipo para gerentes que no son de Administración
+    if (teamIds && !teamIds.includes(s.usuario)) return false;
     if (String(s.fecha.getFullYear()) !== anio) return false;
     if (centro !== "todos" && u.centro !== centro) return false;
     if (mesFiltro !== null && s.fecha.getMonth() !== mesFiltro) return false;
     return true;
-  }), [anio, centro, mesFiltro]);
+  }), [anio, centro, mesFiltro, teamIds]);
+
+  // Sub-filtrado para la lista detallada (status y tipo no afectan KPIs ni gráficas)
+  const solicsFiltradas = React.useMemo(() => solicsFilt.filter(s =>
+    (!statusFiltro || s.status === statusFiltro) &&
+    (!tipoFiltro   || s.tipo   === tipoFiltro)
+  ), [solicsFilt, statusFiltro, tipoFiltro]);
 
   // ── Antigüedad ──────────────────────────────────────────────────────────
   const ahoraSaldos = solicsFilt.filter(s => s.tipo==="anticipo" && (s.saldoPendiente||0)>0);
@@ -4105,21 +4445,43 @@ function Deudores() {
 }
 
 
-function Reportes() {
+function Reportes({ role, userId }) {
   const hoy  = window.HOY;
+
+  // Determinar el alcance del gerente:
+  // Admin y el gerente de Administración (centro 100010009) ven todo.
+  // Los demás gerentes solo ven su equipo.
+  const CENTRO_ADMIN = "100010009";
+  const userObj   = userId ? window.findUser(userId) : null;
+  const esGerenteAdmin = role === "admin" ||
+    (role === "gerente" && userObj && userObj.centro === CENTRO_ADMIN);
+  // IDs del equipo del gerente (para filtrar si no es gerente admin)
+  const teamIds = (!esGerenteAdmin && role === "gerente" && userId)
+    ? window.USUARIOS.filter(u => u.gerente === userId).map(u => u.id)
+    : null; // null = sin restricción
   const AÑOS = ["2026","2025","2024"];
-  const [anio,      setAnio]      = React.useState("2026");
-  const [centro,    setCentro]    = React.useState("todos");
-  const [mesFiltro, setMesFiltro] = React.useState(null); // null = todos los meses
+  const [anio,        setAnio]        = React.useState("2026");
+  const [centro,      setCentro]      = React.useState("todos");
+  const [mesFiltro,   setMesFiltro]   = React.useState(null);
+  const [statusFiltro,setStatusFiltro]= React.useState(null);
+  const [tipoFiltro,  setTipoFiltro]  = React.useState(null);
 
   const solicsFilt = React.useMemo(() => window.SOLICITUDES.filter(s => {
     const u = window.findUser(s.usuario);
     if (!u) return false;
+    // Restricción de equipo para gerentes que no son de Administración
+    if (teamIds && !teamIds.includes(s.usuario)) return false;
     if (String(s.fecha.getFullYear()) !== anio) return false;
     if (centro !== "todos" && u.centro !== centro) return false;
     if (mesFiltro !== null && s.fecha.getMonth() !== mesFiltro) return false;
     return true;
-  }), [anio, centro, mesFiltro]);
+  }), [anio, centro, mesFiltro, teamIds]);
+
+  // Sub-filtrado para la lista detallada (status y tipo no afectan KPIs ni gráficas)
+  const solicsFiltradas = React.useMemo(() => solicsFilt.filter(s =>
+    (!statusFiltro || s.status === statusFiltro) &&
+    (!tipoFiltro   || s.tipo   === tipoFiltro)
+  ), [solicsFilt, statusFiltro, tipoFiltro]);
 
   const totalGasto    = solicsFilt.reduce((a,s)=>a+s.monto,0);
   const totalLiberado = solicsFilt.filter(s=>["liberado","comprobado"].includes(s.status)).reduce((a,s)=>a+s.monto,0);
@@ -4343,55 +4705,98 @@ function Reportes() {
         </div>
       </div>
 
-      {/* ── Status de solicitudes (donut simulado con barras) ── */}
+      {/* ── Status de solicitudes + Resumen por tipo ── */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+
+        {/* Status — clickable bars → filtran por status */}
         <div className="card">
           <div className="card-head">
             <h3 className="card-title">Status de solicitudes</h3>
+            <div className="card-sub">{solicsFilt.length} total</div>
           </div>
           {[
-            {k:"solicitado",  label:"Solicitadas",  color:"#ef9f27"},
-            {k:"autorizado",  label:"Autorizadas",  color:"#378ADD"},
-            {k:"liberado",    label:"Liberadas",    color:"#1d9e75"},
-            {k:"comprobado",  label:"Comprobadas",  color:"#c5f24d"},
-            {k:"rechazado",   label:"Rechazadas",   color:"#e24b4a"},
+            {k:"solicitado", label:"Solicitadas",  color:"#ef9f27"},
+            {k:"autorizado", label:"Autorizadas",  color:"#378ADD"},
+            {k:"liberado",   label:"Liberadas",    color:"#1d9e75"},
+            {k:"comprobado", label:"Comprobadas",  color:"#c5f24d"},
+            {k:"rechazado",  label:"Rechazadas",   color:"#e24b4a"},
           ].map(({k,label,color})=>{
             const cnt=byStatus[k]||0;
             const total=solicsFilt.length||1;
             const pct=Math.round(cnt/total*100);
+            const isSelected=statusFiltro===k;
             return (
-              <div key={k} style={{marginBottom:10}}>
+              <div key={k} style={{marginBottom:10,cursor:"pointer",
+                opacity:statusFiltro&&!isSelected?0.45:1,transition:"opacity .2s"}}
+                onClick={()=>setStatusFiltro(statusFiltro===k?null:k)}>
                 <div className="spread" style={{marginBottom:4}}>
                   <span style={{fontSize:12,display:"flex",alignItems:"center",gap:6}}>
-                    <span style={{width:8,height:8,borderRadius:"50%",background:color,display:"inline-block"}}/>
+                    <span style={{width:8,height:8,borderRadius:"50%",background:color,
+                      flexShrink:0,display:"inline-block",
+                      boxShadow:isSelected?`0 0 6px ${color}`:""}}/>
                     {label}
+                    {isSelected&&<span style={{fontSize:10,padding:"1px 6px",borderRadius:10,
+                      background:color+"22",color:color,fontWeight:600}}>✓ filtro activo</span>}
                   </span>
-                  <span className="mono" style={{fontSize:12}}>{cnt} <span style={{color:"var(--text-3)",fontSize:10}}>({pct}%)</span></span>
+                  <span className="mono" style={{fontSize:12,fontWeight:isSelected?700:400}}>
+                    {cnt} <span style={{color:"var(--text-3)",fontSize:10}}>({pct}%)</span>
+                  </span>
                 </div>
-                <div style={{height:4,background:"var(--surface-3,rgba(255,255,255,.08))",borderRadius:2,overflow:"hidden"}}>
-                  <div style={{height:"100%",width:pct+"%",background:color,borderRadius:2,transition:"width .4s"}}/>
+                <div style={{height:isSelected?6:4,background:"var(--surface-3,rgba(255,255,255,.08))",
+                  borderRadius:3,overflow:"hidden",transition:"height .2s"}}>
+                  <div style={{height:"100%",width:pct+"%",background:color,
+                    borderRadius:3,transition:"width .4s"}}/>
                 </div>
               </div>
             );
           })}
+          {statusFiltro&&(
+            <button onClick={()=>setStatusFiltro(null)}
+              style={{marginTop:8,background:"none",border:"1px solid var(--border)",
+                borderRadius:6,padding:"4px 10px",fontSize:11,cursor:"pointer",
+                color:"var(--text-3)",fontFamily:"inherit",width:"100%"}}>
+              × Quitar filtro de status
+            </button>
+          )}
         </div>
 
-        {/* Tabla resumen por tipo */}
+        {/* Resumen por tipo — clickable rows → filtran por tipo */}
         <div className="card" style={{padding:0}}>
           <div className="card-head" style={{padding:"14px 16px 10px"}}>
             <h3 className="card-title">Resumen por tipo</h3>
+            {tipoFiltro&&(
+              <button onClick={()=>setTipoFiltro(null)}
+                style={{background:"none",border:"1px solid var(--border)",borderRadius:6,
+                  padding:"3px 8px",fontSize:11,cursor:"pointer",color:"var(--text-3)",fontFamily:"inherit"}}>
+                × Quitar filtro
+              </button>
+            )}
           </div>
           <table className="t">
-            <thead><tr><th>Tipo</th><th className="right">Solicitudes</th><th className="right">Monto</th><th className="right">Avg</th></tr></thead>
+            <thead><tr><th>Tipo</th><th className="right">Solicitudes</th>
+              <th className="right">Monto</th><th className="right">Avg</th></tr></thead>
             <tbody>
               {["anticipo","comprobacion","reembolso"].map(tipo=>{
                 const rows=solicsFilt.filter(s=>s.tipo===tipo);
                 const monto=rows.reduce((a,s)=>a+s.monto,0);
                 const labels={anticipo:"Anticipos",comprobacion:"Comprobaciones",reembolso:"Reembolsos"};
+                const colors={anticipo:"#378ADD",comprobacion:"#c5f24d",reembolso:"#9b59b6"};
+                const isSelected=tipoFiltro===tipo;
                 return (
-                  <tr key={tipo}>
-                    <td><span className="badge tipo">{labels[tipo]}</span></td>
-                    <td className="num">{rows.length}</td>
+                  <tr key={tipo} onClick={()=>setTipoFiltro(tipoFiltro===tipo?null:tipo)}
+                    style={{cursor:"pointer",
+                      background:isSelected?"var(--accent-soft,rgba(197,242,77,.08))":"transparent",
+                      opacity:tipoFiltro&&!isSelected?0.45:1,transition:"all .2s"}}>
+                    <td>
+                      <span style={{display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{width:8,height:8,borderRadius:"50%",
+                          background:colors[tipo],display:"inline-block",
+                          boxShadow:isSelected?`0 0 6px ${colors[tipo]}`:""}}/>
+                        <span className="badge tipo">{labels[tipo]}</span>
+                        {isSelected&&<span style={{fontSize:10,color:"var(--accent)"}}>✓</span>}
+                      </span>
+                    </td>
+                    <td className="num" style={{fontWeight:isSelected?700:400}}>{rows.length}</td>
                     <td className="num" style={{fontWeight:600}}>{window.fmtMXN(monto)}</td>
                     <td className="num muted">{rows.length>0?window.fmtMXN(Math.round(monto/rows.length)):"—"}</td>
                   </tr>
@@ -4401,6 +4806,58 @@ function Reportes() {
           </table>
         </div>
       </div>
+
+      {/* ── Lista detallada filtrada ── */}
+      {(statusFiltro||tipoFiltro)&&(()=>{
+        const lista=solicsFilt.filter(s=>
+          (!statusFiltro||s.status===statusFiltro)&&
+          (!tipoFiltro||s.tipo===tipoFiltro)
+        );
+        const titulo=statusFiltro
+          ? `Solicitudes "${statusFiltro}"${tipoFiltro?" · "+tipoFiltro:""}`
+          : `${tipoFiltro} ${mesFiltro!==null?"· "+meses[mesFiltro]:""}`;
+        return (
+          <div className="card" style={{padding:0,marginTop:0}}>
+            <div className="card-head" style={{padding:"12px 16px 10px",
+              display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <h3 className="card-title" style={{margin:0,textTransform:"capitalize"}}>
+                {titulo}
+                <span className="muted" style={{fontWeight:400,fontSize:12,marginLeft:8}}>
+                  {lista.length} solicitud{lista.length!==1?"es":""}
+                </span>
+              </h3>
+              <button onClick={()=>{setStatusFiltro(null);setTipoFiltro(null);}}
+                style={{background:"none",border:"1px solid var(--border)",borderRadius:6,
+                  padding:"3px 8px",fontSize:11,cursor:"pointer",color:"var(--text-3)",fontFamily:"inherit"}}>
+                × Cerrar lista
+              </button>
+            </div>
+            <table className="t">
+              <thead><tr><th>Folio</th><th>Concepto</th><th>Usuario</th>
+                <th>Tipo</th><th>Status</th><th className="right">Monto</th></tr></thead>
+              <tbody>
+                {lista.length===0
+                  ? <tr><td colSpan={6} style={{textAlign:"center",padding:"20px",color:"var(--text-3)"}}>Sin solicitudes para este filtro</td></tr>
+                  : lista.sort((a,b)=>b.fecha-a.fecha).map(s=>{
+                      const u=window.findUser(s.usuario);
+                      return (
+                        <tr key={s.id}>
+                          <td className="id-cell">{s.id}</td>
+                          <td style={{maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.concepto}</td>
+                          <td><div className="row"><div className="avatar sm">{u.iniciales}</div>
+                            <span style={{fontSize:12}}>{u.nombre}</span></div></td>
+                          <td><TipoBadge tipo={s.tipo}/></td>
+                          <td><StatusBadge status={s.status}/></td>
+                          <td className="num" style={{fontWeight:600}}>{window.fmtMXN(s.monto)}</td>
+                        </tr>
+                      );
+                    })
+                }
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
     </>
   );
 }
@@ -6020,7 +6477,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
 
   if (role === "gerente") {
     if (page === "bandeja")          return <GerenteBandeja openDetail={setDetailId} userId={userId}/>;
-    if (page === "reportes")         return <Reportes/>;
+    if (page === "reportes")         return <Reportes role={role} userId={userId}/>;
     if (page === "equipo")           return <GerenteEquipo userId={userId}/>;
     if (page === "historial")        return <GerenteHistorial openDetail={setDetailId} userId={userId}/>;
     if (page === "mis-solicitudes")  return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
@@ -6034,7 +6491,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     if (page === "liberacion") return <TesoreriaBandeja openDetail={setDetailId}/>;
     if (page === "pagados")    return <TesoreriaPagados openDetail={setDetailId}/>;
     if (page === "deudores")   return <Deudores/>;
-    if (page === "reportes")   return <Reportes/>;
+    if (page === "reportes")   return <Reportes role={role} userId={userId}/>;
     return <TesoreriaBandeja openDetail={setDetailId}/>;
   }
 
@@ -6043,7 +6500,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     if (page === "usuarios")  return <AdminUsuarios/>;
     if (page === "centros")   return <AdminCentros/>;
     if (page === "catalogo")  return <AdminCatalogo/>;
-    if (page === "reportes")  return <Reportes/>;
+    if (page === "reportes")  return <Reportes role={role} userId={userId}/>;
     if (page === "ajustes")   return <AdminAjustes/>;
     // Admin operando como tesorería
     if (page === "liberacion") return <TesoreriaBandeja openDetail={setDetailId}/>;
@@ -6070,90 +6527,6 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
   }
 
   return null;
-}
-
-// ── Páginas stub para rutas que antes no tenían contenido ─────────────────
-function GerenteEquipo() {
-  const gerenteId = "U101";
-  const equipo = window.USUARIOS.filter(u => u.gerente === gerenteId);
-  return (
-    <>
-      <div className="page-head">
-        <div><h1 className="page-title">Mi equipo</h1>
-          <div className="page-sub">{equipo.length} colaboradores a tu cargo</div>
-        </div>
-      </div>
-      <div className="card" style={{padding:0}}>
-        <table className="t">
-          <thead><tr><th>Colaborador</th><th>Centro</th><th>Correo</th><th className="right">Anticipos abiertos</th><th className="right">Saldo pendiente</th></tr></thead>
-          <tbody>
-            {equipo.map(u => {
-              const c = window.findCentro(u.centro);
-              const abiertos = window.SOLICITUDES.filter(s => s.usuario===u.id && s.tipo==="anticipo" && s.saldoPendiente>0);
-              const saldo = abiertos.reduce((a,s)=>a+s.saldoPendiente,0);
-              return (
-                <tr key={u.id}>
-                  <td><div className="row"><div className="avatar sm">{u.iniciales}</div><div><div style={{fontSize:13}}>{u.nombre}</div><div className="muted mono" style={{fontSize:11}}>{u.id}</div></div></div></td>
-                  <td className="muted">{c?c.nombre:u.centro}</td>
-                  <td className="muted mono" style={{fontSize:12}}>{u.correo}</td>
-                  <td className="num">{abiertos.length}</td>
-                  <td className="num" style={{color:saldo>0?"var(--warn)":"var(--text-3)"}}>{window.fmtMXN(saldo)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </>
-  );
-}
-
-function GerenteHistorial({ openDetail }) {
-  const gerenteId = "U101";
-  const teamIds = window.USUARIOS.filter(u => u.gerente===gerenteId).map(u=>u.id);
-  const [filtro, setFiltro] = React.useState("todas");
-  const all = window.SOLICITUDES.filter(s => teamIds.includes(s.usuario));
-  const filtradas = filtro==="todas" ? all : all.filter(s=>s.status===filtro);
-  return (
-    <>
-      <div className="page-head">
-        <div><h1 className="page-title">Historial</h1>
-          <div className="page-sub">Todas las solicitudes de tu equipo</div>
-        </div>
-      </div>
-      <div className="filterbar">
-        {[["todas","Todas"],["solicitado","Solicitadas"],["autorizado","Autorizadas"],["liberado","Liberadas"],["rechazado","Rechazadas"],["comprobado","Comprobadas"]].map(([k,l])=>(
-          <div key={k} className={`chip ${filtro===k?"active":""}`} onClick={()=>setFiltro(k)}>
-            {l} <span className="count">{k==="todas"?all.length:all.filter(s=>s.status===k).length}</span>
-          </div>
-        ))}
-      </div>
-      <div className="card" style={{padding:0}}>
-        <table className="t">
-          <thead><tr><th></th><th>Folio</th><th>Solicitante</th><th>Concepto</th><th>Fecha</th><th className="right">Monto</th><th>Status</th></tr></thead>
-          <tbody>
-            {filtradas.length===0
-              ? <tr><td colSpan={7} style={{textAlign:"center",padding:"24px",color:"var(--text-3)"}}>Sin solicitudes en esta categoría</td></tr>
-              : filtradas.map(s=>{
-                const u=window.findUser(s.usuario);
-                return (
-                  <tr key={s.id} onClick={()=>openDetail(s.id)} style={{cursor:"pointer"}}>
-                    <td><TipoBadge tipo={s.tipo}/></td>
-                    <td className="id-cell">{s.id}</td>
-                    <td><div className="row"><div className="avatar sm">{u.iniciales}</div><span style={{fontSize:13}}>{u.nombre}</span></div></td>
-                    <td>{s.concepto}</td>
-                    <td className="muted mono" style={{fontSize:12}}>{window.fmtFecha(s.fecha)}</td>
-                    <td className="num">{window.fmtMXN(s.monto)}</td>
-                    <td><StatusBadge status={s.status}/></td>
-                  </tr>
-                );
-              })
-            }
-          </tbody>
-        </table>
-      </div>
-    </>
-  );
 }
 
 function TesoreriaPagados({ openDetail }) {
@@ -6212,41 +6585,6 @@ function TesoreriaPagados({ openDetail }) {
     </>
   );
 }
-
-function AdminAjustes() {
-  return (
-    <>
-      <div className="page-head">
-        <div><h1 className="page-title">Ajustes</h1>
-          <div className="page-sub">Configuración general del sistema</div>
-        </div>
-      </div>
-      <div className="two-col">
-        <div className="card">
-          <h3 className="card-title" style={{marginBottom:16}}>Políticas de viáticos</h3>
-          <div className="form-grid cols-2">
-            <div className="field"><label>Hospedaje máximo por noche</label><input className="input mono" defaultValue="$2,800.00"/></div>
-            <div className="field"><label>Comidas máximo por día</label><input className="input mono" defaultValue="$450.00"/></div>
-            <div className="field"><label>Días máx. para comprobar</label><input className="input mono" defaultValue="10"/></div>
-            <div className="field"><label>Monto para aprobación doble</label><input className="input mono" defaultValue="$20,000.00"/></div>
-          </div>
-          <div style={{marginTop:18,display:"flex",justifyContent:"flex-end",gap:8}}>
-            <button className="btn ghost">Cancelar</button>
-            <button className="btn primary">Guardar cambios</button>
-          </div>
-        </div>
-        <div className="card">
-          <h3 className="card-title" style={{marginBottom:16}}>Notificaciones del sistema</h3>
-          <div className="spread" style={{padding:"8px 0"}}><span style={{fontSize:13}}>Alertar gerente cuando solicitud &gt;48 h sin respuesta</span><input type="checkbox" defaultChecked/></div>
-          <div className="spread" style={{padding:"8px 0"}}><span style={{fontSize:13}}>Recordatorio comprobación a 10 días</span><input type="checkbox" defaultChecked/></div>
-          <div className="spread" style={{padding:"8px 0"}}><span style={{fontSize:13}}>Reporte semanal a tesorería</span><input type="checkbox" defaultChecked/></div>
-          <div className="spread" style={{padding:"8px 0"}}><span style={{fontSize:13}}>Alerta saldo pendiente &gt;60 días</span><input type="checkbox" defaultChecked/></div>
-        </div>
-      </div>
-    </>
-  );
-}
-
 
 // ── ThemePanel — panel de ajustes siempre funcional ─────────────────────────
 function ThemePanel({ theme, onTheme, accent, onAccent, density, onDensity, isAdmin, role, onRole }) {
@@ -6646,7 +6984,7 @@ function App() {
         <MobileApp userId={userId} onLogout={handleLogout} setPage={setPageFromMobile}/>
       ) : (
         <div className="app">
-          <Sidebar role={activeRole} page={activePage} setPage={setPage} onLogout={handleLogout}/>
+          <Sidebar role={activeRole} page={activePage} setPage={setPage} onLogout={handleLogout} userId={userId}/>
           <div className="main">
             <Topbar role={activeRole} setRole={handleSetRole} crumbs={crumbs} isAdmin={isAdmin}
               userId={userId}
