@@ -4156,6 +4156,9 @@ function Deudores({ role, userId }) {
     ? window.USUARIOS.filter(u => u.gerente === userId).map(u => u.id)
     : null;
 
+  const [statusFiltro, setStatusFiltro] = React.useState(null);
+  const [tipoFiltro,   setTipoFiltro]   = React.useState(null);
+
   const solicsFilt = React.useMemo(() => window.SOLICITUDES.filter(s => {
     const u = window.findUser(s.usuario);
     if (!u) return false;
