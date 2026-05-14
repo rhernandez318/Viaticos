@@ -1964,7 +1964,7 @@ const NAV = {
     { id: "reembolsos", label: "Reembolsos",        icon: "refund" },
   ],
   gerente: [
-    { id: "bandeja",         label: "Por aprobar",       icon: "inbox", badge: 7 },
+    { id: "bandeja",         label: "Por aprobar",       icon: "inbox" },
     { id: "equipo",          label: "Mi equipo",         icon: "users" },
     { id: "historial",       label: "Historial",         icon: "history" },
     { id: "reportes",        label: "Reportes",          icon: "chart" },
@@ -1975,7 +1975,7 @@ const NAV = {
     { id: "comprobaciones",  label: "Comprobaciones",    icon: "receipt" },
   ],
   tesoreria: [
-    { id: "liberacion", label: "Por liberar",       icon: "cash", badge: 4 },
+    { id: "liberacion", label: "Por liberar",       icon: "cash" },
     { id: "pagados",   label: "Pagados",            icon: "check" },
     { id: "deudores",  label: "Deudores",           icon: "flag" },
     { id: "reportes",  label: "Reportes",           icon: "chart" },
@@ -2011,8 +2011,30 @@ const ROLE_USERS = {
 };
 
 function Sidebar({ role, page, setPage, onLogout, userId: sidUserId }) {
-  const items = NAV[role];
   const u = window.findUser(sidUserId) || { iniciales:"?", nombre:"Usuario", correo:"", rol: role };
+
+  // Calcular badges en tiempo real
+  const liveBadge = (id) => {
+    if (id === "bandeja") {
+      const teamIds = sidUserId
+        ? window.USUARIOS.filter(x => x.gerente === sidUserId).map(x => x.id)
+        : [];
+      const n = window.SOLICITUDES.filter(s =>
+        s.status === "solicitado" && (teamIds.length === 0 || teamIds.includes(s.usuario))
+      ).length;
+      return n > 0 ? n : null;
+    }
+    if (id === "liberacion") {
+      const n = window.SOLICITUDES.filter(s => s.status === "autorizado").length;
+      return n > 0 ? n : null;
+    }
+    return null;
+  };
+
+  const items = (NAV[role] || []).map(it => ({
+    ...it,
+    badge: liveBadge(it.id),
+  }));
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -2213,15 +2235,14 @@ function generarNotificaciones(role, userId) {
 }
 
 // ── Panel de notificaciones ───────────────────────────────────────────────────
-function NotifPanel({ role, userId, onClose, onNavigate }) {
+function NotifPanel({ role, userId, onClose, onNavigate, leidas, setLeidas }) {
   const notifs = React.useMemo(
     () => generarNotificaciones(role, userId),
     [role, userId]
   );
-  const [leidas, setLeidas] = React.useState(new Set());
-
-  const marcarLeida = (id) => setLeidas(prev => new Set([...prev, id]));
-  const marcarTodas = () => setLeidas(new Set(notifs.map(n => n.id)));
+  const leidasSet = leidas || new Set();
+  const marcarLeida = (id) => setLeidas && setLeidas(prev => new Set([...prev, id]));
+  const marcarTodas = () => setLeidas && setLeidas(new Set(notifs.map(n => n.id)));
 
   const colores = {
     danger: { bg:"rgba(226,75,74,.12)", border:"rgba(226,75,74,.4)", text:"#e24b4a", dot:"#e24b4a" },
@@ -2243,10 +2264,10 @@ function NotifPanel({ role, userId, onClose, onNavigate }) {
         position:"sticky",top:0,background:"var(--surface-1,#1c1e22)",zIndex:1}}>
         <div>
           <span style={{fontWeight:600,fontSize:14}}>Notificaciones</span>
-          {notifs.filter(n=>!leidas.has(n.id)).length > 0 && (
+          {notifs.filter(n=>!leidasSet.has(n.id)).length > 0 && (
             <span style={{marginLeft:8,background:"#e24b4a",color:"#fff",
               fontSize:10,fontWeight:700,padding:"1px 6px",borderRadius:10}}>
-              {notifs.filter(n=>!leidas.has(n.id)).length}
+              {notifs.filter(n=>!leidasSet.has(n.id)).length}
             </span>
           )}
         </div>
@@ -2273,7 +2294,7 @@ function NotifPanel({ role, userId, onClose, onNavigate }) {
         </div>
       ) : notifs.map(n => {
         const c   = colores[n.tipo] || colores.info;
-        const leida = leidas.has(n.id);
+        const leida = leidasSet.has(n.id);
         return (
           <div key={n.id}
             onClick={() => { marcarLeida(n.id); if (n.folio && onNavigate) onNavigate(n.folio); onClose(); }}
@@ -2323,8 +2344,9 @@ function NotifPanel({ role, userId, onClose, onNavigate }) {
 
 function Topbar({ role, setRole, crumbs, onNew, isAdmin, userId, onOpenDetail }) {
   const [showNotifs, setShowNotifs] = React.useState(false);
+  const [leidas,     setLeidas]     = React.useState(new Set());
   const notifs   = React.useMemo(() => generarNotificaciones(role, userId), [role, userId]);
-  const unread   = notifs.length; // todas son "no leídas" hasta que abres el panel
+  const unread   = notifs.filter(n => !leidas.has(n.id)).length;
 
   return (
     <div className="topbar">
@@ -2389,6 +2411,8 @@ function Topbar({ role, setRole, crumbs, onNew, isAdmin, userId, onOpenDetail })
           <NotifPanel
             role={role}
             userId={userId}
+            leidas={leidas}
+            setLeidas={setLeidas}
             onClose={() => setShowNotifs(false)}
             onNavigate={(folio) => { if (onOpenDetail) onOpenDetail(folio); }}
           />
