@@ -4140,13 +4140,21 @@ function AdminCatalogo() {
   );
 }
 
-function Deudores() {
+function Deudores({ role, userId }) {
   const hoy = window.HOY;
   const AÑOS = ["2026","2025","2024"];
   const [anio,      setAnio]      = React.useState("2026");
   const [centro,    setCentro]    = React.useState("todos");
   const [tab,       setTab]       = React.useState("aging");
   const [mesFiltro, setMesFiltro] = React.useState(null);
+
+  const CENTRO_ADMIN = "100010009";
+  const userObj = userId ? window.findUser(userId) : null;
+  const esAdmin = !role || role === "admin" || role === "tesoreria" ||
+    (role === "gerente" && userObj && userObj.centro === CENTRO_ADMIN);
+  const teamIds = (!esAdmin && role === "gerente" && userId)
+    ? window.USUARIOS.filter(u => u.gerente === userId).map(u => u.id)
+    : null;
 
   const solicsFilt = React.useMemo(() => window.SOLICITUDES.filter(s => {
     const u = window.findUser(s.usuario);
@@ -6490,7 +6498,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
   if (role === "tesoreria") {
     if (page === "liberacion") return <TesoreriaBandeja openDetail={setDetailId}/>;
     if (page === "pagados")    return <TesoreriaPagados openDetail={setDetailId}/>;
-    if (page === "deudores")   return <Deudores/>;
+    if (page === "deudores")   return <Deudores role={role} userId={userId}/>;
     if (page === "reportes")   return <Reportes role={role} userId={userId}/>;
     return <TesoreriaBandeja openDetail={setDetailId}/>;
   }
@@ -6505,7 +6513,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     // Admin operando como tesorería
     if (page === "liberacion") return <TesoreriaBandeja openDetail={setDetailId}/>;
     if (page === "pagados")    return <TesoreriaPagados openDetail={setDetailId}/>;
-    if (page === "deudores")   return <Deudores/>;
+    if (page === "deudores")   return <Deudores role={role} userId={userId}/>;
     // Admin operando como gerente
     if (page === "bandeja")         return <GerenteBandeja openDetail={setDetailId} userId={userId}/>;
     if (page === "equipo")          return <GerenteEquipo userId={userId}/>;
