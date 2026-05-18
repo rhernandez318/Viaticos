@@ -1118,6 +1118,7 @@ table.t {
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js" crossorigin="anonymous"></script>
 <script type="text/babel">
 
 // ═══ data ═══
@@ -1205,6 +1206,94 @@ function verifyToken(correo, token) {
   if (Date.now() > rec.expires) { delete window.AUTH_TOKENS[correo]; return false; }
   return rec.token === token.toUpperCase();
 }
+
+// ── Supabase (Fase 1: auth + catálogos) ─────────────────────────────────────
+const SUPABASE_URL = "https://zkeymkqzqjrgjgjbjdzi.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InprZXlta3F6cWpyZ2pnamJqZHppIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxMjE5NjksImV4cCI6MjA5NDY5Nzk2OX0.zpJq-ZodrFSUvR8PB4rDwlqJNqkibyX2MRm9fTacAE4";
+
+const supabase = window.supabase
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+window.sb = supabase;
+
+// Carga catálogos desde Supabase (centros, cuentas_contables, usuarios)
+async function loadFromDB() {
+  if (!supabase) { console.warn("Supabase no disponible — modo offline con datos locales"); return false; }
+  try {
+    const [centrosRes, cuentasRes, usuariosRes] = await Promise.all([
+      supabase.from('centros').select('*').eq('activo', true),
+      supabase.from('cuentas_contables').select('*').eq('activo', true),
+      supabase.from('usuarios').select('*').eq('activo', true),
+    ]);
+    if (centrosRes.error)  throw centrosRes.error;
+    if (cuentasRes.error)  throw cuentasRes.error;
+    if (usuariosRes.error) throw usuariosRes.error;
+
+    // Reemplaza arrays in-place para que existing components vean los nuevos datos
+    CENTROS.length = 0;
+    (centrosRes.data || []).forEach(c => CENTROS.push({
+      id: c.id, nombre: c.nombre, depto: c.depto, division: c.division,
+    }));
+
+    CATALOGO_GASTOS.length = 0;
+    (cuentasRes.data || []).forEach(c => CATALOGO_GASTOS.push({
+      cuenta: c.cuenta, nombre: c.nombre, grupo: c.grupo,
+    }));
+
+    USUARIOS.length = 0;
+    (usuariosRes.data || []).forEach(u => USUARIOS.push({
+      id: u.id, nombre: u.nombre, correo: u.correo, rol: u.rol,
+      centro: u.centro_id, gerente: u.gerente_id, iniciales: u.iniciales,
+      division: u.division, clabe: u.clabe, banco: u.banco,
+      password: null,  // ya no almacenamos pwd local
+    }));
+
+    console.log(`✓ Catálogos cargados: ${CENTROS.length} centros, ${CATALOGO_GASTOS.length} cuentas, ${USUARIOS.length} usuarios`);
+    return true;
+  } catch (err) {
+    console.error("Error cargando catálogos de Supabase:", err);
+    return false;
+  }
+}
+window.loadFromDB = loadFromDB;
+
+// Login con Supabase Auth
+async function sbLogin(correo, pwd) {
+  if (!supabase) throw new Error("Supabase no inicializado");
+  const { data, error } = await supabase.auth.signInWithPassword({ email: correo, password: pwd });
+  if (error) throw error;
+  // Carga el perfil del usuario desde public.usuarios
+  const { data: perfil, error: pErr } = await supabase
+    .from('usuarios').select('*').eq('id', data.user.id).single();
+  if (pErr) throw pErr;
+  return {
+    id: perfil.id, nombre: perfil.nombre, correo: perfil.correo, rol: perfil.rol,
+    centro: perfil.centro_id, gerente: perfil.gerente_id, iniciales: perfil.iniciales,
+    division: perfil.division, clabe: perfil.clabe, banco: perfil.banco,
+  };
+}
+window.sbLogin = sbLogin;
+
+async function sbLogout() {
+  if (!supabase) return;
+  try { await supabase.auth.signOut(); } catch (e) { console.warn("logout:", e); }
+}
+window.sbLogout = sbLogout;
+
+async function sbGetSession() {
+  if (!supabase) return null;
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return null;
+  const { data: perfil } = await supabase
+    .from('usuarios').select('*').eq('id', session.user.id).single();
+  if (!perfil) return null;
+  return {
+    id: perfil.id, nombre: perfil.nombre, correo: perfil.correo, rol: perfil.rol,
+    centro: perfil.centro_id, gerente: perfil.gerente_id, iniciales: perfil.iniciales,
+    division: perfil.division, clabe: perfil.clabe, banco: perfil.banco,
+  };
+}
+window.sbGetSession = sbGetSession;
 
 
 // ── Cálculo automático de saldo pendiente ──────────────────────────────────
@@ -7888,20 +7977,19 @@ function LoginScreen({ onLogin }) {
   const [recMsg, setRecMsg]       = React.useState("");
   const [sentToken, setSentToken] = React.useState("");
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setError("");
     if (!correo.trim() || !pwd) { setError("Ingresa tu correo y contraseña"); return; }
     setLoading(true);
-    setTimeout(() => {
-      const user = window.checkPassword(correo.trim(), pwd);
-      if (user) {
-        onLogin(user);
-      } else {
-        setError("Correo o contraseña incorrectos");
-        setLoading(false);
-      }
-    }, 600);
+    try {
+      const user = await window.sbLogin(correo.trim(), pwd);
+      onLogin(user);
+    } catch (err) {
+      const msg = err && err.message ? err.message : "Error al iniciar sesión";
+      setError(/invalid|credentials/i.test(msg) ? "Correo o contraseña incorrectos" : msg);
+      setLoading(false);
+    }
   };
 
   const handleSendToken = (e) => {
@@ -8091,8 +8179,24 @@ function App() {
   const [t, setTweak]       = window.useTweaks(TWEAK_DEFAULTS);
   const [detailId, setDetailId] = React.useState(null);
   const [session, setSession]   = React.useState(null); // { user } | null
+  const [booting, setBooting]   = React.useState(true);
 
   const [page, setPage] = React.useState(() => DEFAULT_PAGE[TWEAK_DEFAULTS.role] || "dash");
+
+  // ── Bootstrap: carga catálogos y verifica sesión existente ────────────────
+  React.useEffect(() => {
+    (async () => {
+      await window.loadFromDB();
+      const existing = await window.sbGetSession();
+      if (existing) {
+        setSession({ user: existing });
+        const role = existing.rol;
+        setPage(DEFAULT_PAGE[role] || "dash");
+        setTweak("role", role);
+      }
+      setBooting(false);
+    })();
+  }, []);
 
   React.useEffect(() => { applyTokens(t); }, [t]);
 
@@ -8120,10 +8224,22 @@ function App() {
     setPage(page);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await window.sbLogout();
     setSession(null);
     setPage("dash");
   };
+
+  if (booting) {
+    return (
+      <div style={{position:"fixed", inset:0, display:"grid", placeItems:"center", background:"var(--bg)", color:"var(--text)"}}>
+        <div style={{textAlign:"center"}}>
+          <div style={{fontFamily:"var(--f-display)", fontSize:24, fontWeight:600, letterSpacing:"-0.02em", marginBottom:6}}>Viáticos</div>
+          <div style={{fontSize:13, color:"var(--text-3)"}}>Cargando…</div>
+        </div>
+      </div>
+    );
+  }
 
   if (!session) {
     return <LoginScreen onLogin={handleLogin}/>;
