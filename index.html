@@ -939,6 +939,35 @@ table.t {
   display: grid; place-items: center;
 }
 
+/* En celulares reales: el frame se quita y la app llena la pantalla */
+@media (max-width: 768px) {
+  .phone-wrap {
+    padding: 0;
+    min-height: 100vh;
+    min-height: 100dvh;
+    align-items: stretch;
+  }
+  .phone {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background: var(--bg);
+  }
+  .phone-notch { display: none; }
+  .phone-status {
+    height: env(safe-area-inset-top, 0);
+    min-height: env(safe-area-inset-top, 0);
+    padding: 0;
+    visibility: hidden;
+  }
+  .phone-tabs {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom, 0));
+  }
+}
+
 /* Mobile cards */
 .m-pad { padding: 16px; }
 .m-card {
@@ -6313,7 +6342,7 @@ function M_Empty({ icon = "inbox", title, sub }) {
 
 // ───────────────────────── Usuario ─────────────────────────
 
-function MUserHome({ userId, push, setTab, goToPage }) {
+function MUserHome({ userId, push, setTab }) {
   const u = window.findUser(userId);
   const c = window.findCentro(u.centro);
   const mine = window.SOLICITUDES.filter(s => s.usuario === userId);
@@ -6335,15 +6364,15 @@ function MUserHome({ userId, push, setTab, goToPage }) {
         <div style={{fontSize:11.5, opacity:0.75, marginTop:6}}>{c?.nombre} · {c?.id}</div>
       </div>
       <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:14}}>
-        <div className="m-card" style={{textAlign:"center", margin:0, cursor:"pointer"}} onClick={() => goToPage("anticipos")}>
+        <div className="m-card" style={{textAlign:"center", margin:0, cursor:"pointer"}} onClick={() => push({name:"nuevo-anticipo"})}>
           <div style={{width:36, height:36, borderRadius:10, background:"var(--accent-soft)", margin:"0 auto 8px", display:"grid", placeItems:"center", color:"var(--accent)"}}><Icon name="plus" size={18}/></div>
           <div style={{fontSize:12, fontWeight:500}}>Anticipo</div>
         </div>
-        <div className="m-card" style={{textAlign:"center", margin:0, cursor:"pointer"}} onClick={() => goToPage("comprobaciones")}>
+        <div className="m-card" style={{textAlign:"center", margin:0, cursor:"pointer"}} onClick={() => push({name:"nueva-comprobacion"})}>
           <div style={{width:36, height:36, borderRadius:10, background:"var(--info-soft)", margin:"0 auto 8px", display:"grid", placeItems:"center", color:"var(--info)"}}><Icon name="receipt" size={18}/></div>
           <div style={{fontSize:12, fontWeight:500}}>Comprobar</div>
         </div>
-        <div className="m-card" style={{textAlign:"center", margin:0, cursor:"pointer"}} onClick={() => goToPage("reembolsos")}>
+        <div className="m-card" style={{textAlign:"center", margin:0, cursor:"pointer"}} onClick={() => push({name:"nuevo-reembolso"})}>
           <div style={{width:36, height:36, borderRadius:10, background:"var(--warn-soft)", margin:"0 auto 8px", display:"grid", placeItems:"center", color:"var(--warn)"}}><Icon name="refund" size={18}/></div>
           <div style={{fontSize:12, fontWeight:500}}>Reembolso</div>
         </div>
@@ -6793,6 +6822,300 @@ function MAdminCentros() {
   );
 }
 
+// ───────────────────────── Formularios móvil ─────────────────────────
+
+function MNuevoAnticipo({ userId, onDone, showSnack }) {
+  const [form, setForm] = React.useState({
+    concepto: "", centro: window.CENTROS[0].id,
+    salida: "", regreso: "", destino: "", notas: "",
+  });
+  const [lineas, setLineas] = React.useState([
+    { id: 1, nombre: "Pasajes", monto: 0, cuenta: "6122900001" },
+  ]);
+  const upd = (k, v) => setForm({...form, [k]: v});
+  const updL = (id, k, v) => setLineas(lineas.map(l => l.id === id ? { ...l, [k]: v } : l));
+  const addL = () => setLineas([...lineas, { id: Date.now(), nombre: "", monto: 0, cuenta: "6122900005" }]);
+  const delL = (id) => setLineas(lineas.filter(l => l.id !== id));
+  const total = lineas.reduce((a, l) => a + (parseFloat(l.monto) || 0), 0);
+
+  const enviar = () => {
+    if (!form.concepto.trim()) { showSnack("⚠ Escribe un concepto"); return; }
+    if (!form.destino.trim())  { showSnack("⚠ Indica el destino"); return; }
+    if (total <= 0)            { showSnack("⚠ Agrega al menos un monto"); return; }
+    const id = "ANT-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-4);
+    window.SOLICITUDES.unshift({
+      id, tipo:"anticipo", concepto: form.concepto.trim(),
+      usuario: userId, monto: total, fecha: new Date(),
+      status: "solicitado", saldoPendiente: total, comprobantes: 0,
+      destino: form.destino, salida: form.salida, regreso: form.regreso,
+      notas: form.notas, items: lineas,
+    });
+    showSnack(`✓ ${id} enviado a tu gerente`);
+    setTimeout(onDone, 1000);
+  };
+  const guardarBorrador = () => {
+    const id = `BOR-${Date.now().toString().slice(-6)}`;
+    window.BORRADORES = window.BORRADORES || [];
+    window.BORRADORES.push({ id, ...form, lineas, fecha: new Date(), tipo: "anticipo" });
+    showSnack(`✓ Borrador ${id} guardado`);
+  };
+
+  return (
+    <div className="m-pad">
+      <div className="m-balance" style={{padding:14, marginBottom:14}}>
+        <div className="m-balance-l">Monto total estimado</div>
+        <div className="m-balance-v">{window.fmtMXN(total)}</div>
+        <div style={{fontSize:11.5, opacity:0.75, marginTop:6}}>{lineas.length} concepto{lineas.length !== 1 ? "s" : ""}</div>
+      </div>
+
+      <div style={{fontSize:11, textTransform:"uppercase", letterSpacing:"0.08em", color:"var(--text-3)", margin:"4px 4px 10px", fontWeight:600}}>Datos del viaje</div>
+      <div className="m-card" style={{margin:"0 0 14px"}}>
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:11, color:"var(--text-3)", fontWeight:500, display:"block", marginBottom:4}}>Concepto / motivo</label>
+          <input className="input" placeholder="Ej. Visita comercial Monterrey" style={{width:"100%"}} value={form.concepto} onChange={e => upd("concepto", e.target.value)}/>
+        </div>
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:11, color:"var(--text-3)", fontWeight:500, display:"block", marginBottom:4}}>Centro de beneficio</label>
+          <select className="select" style={{width:"100%"}} value={form.centro} onChange={e => upd("centro", e.target.value)}>
+            {window.CENTROS.map(c => <option key={c.id} value={c.id}>{c.id} · {c.nombre}</option>)}
+          </select>
+        </div>
+        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12}}>
+          <div>
+            <label style={{fontSize:11, color:"var(--text-3)", fontWeight:500, display:"block", marginBottom:4}}>Salida</label>
+            <input className="input" placeholder="dd mmm" style={{width:"100%"}} value={form.salida} onChange={e => upd("salida", e.target.value)}/>
+          </div>
+          <div>
+            <label style={{fontSize:11, color:"var(--text-3)", fontWeight:500, display:"block", marginBottom:4}}>Regreso</label>
+            <input className="input" placeholder="dd mmm" style={{width:"100%"}} value={form.regreso} onChange={e => upd("regreso", e.target.value)}/>
+          </div>
+        </div>
+        <div style={{marginBottom:12}}>
+          <label style={{fontSize:11, color:"var(--text-3)", fontWeight:500, display:"block", marginBottom:4}}>Destino</label>
+          <input className="input" placeholder="Ciudad, Estado" style={{width:"100%"}} value={form.destino} onChange={e => upd("destino", e.target.value)}/>
+        </div>
+        <div>
+          <label style={{fontSize:11, color:"var(--text-3)", fontWeight:500, display:"block", marginBottom:4}}>Notas (opcional)</label>
+          <textarea className="textarea" placeholder="Detalles para tu gerente…" style={{width:"100%", minHeight:60}} value={form.notas} onChange={e => upd("notas", e.target.value)}/>
+        </div>
+      </div>
+
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8, padding:"0 4px"}}>
+        <div style={{fontSize:11, textTransform:"uppercase", letterSpacing:"0.08em", color:"var(--text-3)", fontWeight:600}}>Desglose</div>
+        <button className="btn sm ghost" onClick={addL}><Icon name="plus" size={12}/> Línea</button>
+      </div>
+      {lineas.map(l => (
+        <div key={l.id} className="m-card" style={{margin:"0 0 8px"}}>
+          <div style={{display:"flex", gap:6, alignItems:"center", marginBottom:8}}>
+            <input className="input" style={{flex:1, fontSize:12.5}} placeholder="Concepto" value={l.nombre} onChange={e => updL(l.id, "nombre", e.target.value)}/>
+            <button className="icon-btn" style={{flexShrink:0}} onClick={() => delL(l.id)}><Icon name="x" size={12}/></button>
+          </div>
+          <select className="select" style={{width:"100%", marginBottom:8, fontSize:12}} value={l.cuenta} onChange={e => updL(l.id, "cuenta", e.target.value)}>
+            {window.CATALOGO_GASTOS.map(c => <option key={c.cuenta} value={c.cuenta}>{c.cuenta} · {c.nombre}</option>)}
+          </select>
+          <input className="input mono" style={{width:"100%", textAlign:"right"}} placeholder="0.00" value={l.monto} onChange={e => updL(l.id, "monto", e.target.value)}/>
+        </div>
+      ))}
+
+      <div style={{marginTop:16, display:"flex", flexDirection:"column", gap:8}}>
+        <button className="btn primary" style={{width:"100%", justifyContent:"center"}} onClick={enviar}><Icon name="arrowR" size={13}/> Enviar a aprobación</button>
+        <button className="btn" style={{width:"100%", justifyContent:"center"}} onClick={guardarBorrador}>Guardar borrador</button>
+      </div>
+    </div>
+  );
+}
+
+function MNuevoReembolso({ userId, onDone }) {
+  return (
+    <div className="m-pad">
+      <div className="m-card" style={{margin:"0 0 12px", padding:12, background:"var(--info-soft)", border:"1px solid var(--border-2)"}}>
+        <div style={{display:"flex", gap:10, alignItems:"flex-start"}}>
+          <Icon name="refund" size={16} style={{color:"var(--info)", marginTop:1}}/>
+          <div style={{fontSize:12, color:"var(--text-2)"}}>Sube las facturas de gastos que pagaste de tu bolsa. Se autoclasifican por cuenta contable.</div>
+        </div>
+      </div>
+      <MobileScan userId={userId} onDone={onDone}/>
+    </div>
+  );
+}
+
+function MNuevaComprobacion({ userId, onDone, showSnack }) {
+  const pendientes = window.SOLICITUDES.filter(s => s.tipo === "anticipo" && s.usuario === userId && ["autorizado","liberado","parcial"].includes(s.status) && (s.saldoPendiente || 0) > 0);
+  const [sel, setSel] = React.useState(null);
+  const [facturas, setFacturas] = React.useState([]);
+
+  // Paso 1: seleccionar anticipo
+  if (!sel) {
+    return (
+      <div className="m-pad">
+        <div style={{fontSize:11, textTransform:"uppercase", letterSpacing:"0.08em", color:"var(--text-3)", margin:"4px 4px 10px", fontWeight:600}}>
+          Selecciona un anticipo
+        </div>
+        {pendientes.length === 0 && <M_Empty icon="check" title="Sin anticipos por comprobar" sub="Cuando tengas un anticipo liberado aparecerá aquí"/>}
+        {pendientes.map(a => (
+          <div key={a.id} className="m-card" style={{cursor:"pointer"}} onClick={() => setSel(a)}>
+            <div className="spread" style={{marginBottom:6}}>
+              <span className="mono" style={{fontSize:11, color:"var(--text-3)"}}>{a.id}</span>
+              <StatusBadge status={a.status}/>
+            </div>
+            <div style={{fontSize:13, fontWeight:500, marginBottom:6}}>{a.concepto}</div>
+            <div className="spread">
+              <span className="muted" style={{fontSize:11}}>Anticipo · {window.fmtMXN(a.monto)}</span>
+              <span className="mono" style={{fontSize:13, fontWeight:600, color:"var(--warn)"}}>Saldo {window.fmtMXN(a.saldoPendiente)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Paso 2: capturar facturas para el anticipo seleccionado
+  const totalComp = facturas.reduce((a, f) => a + (f.total || 0), 0);
+  const saldoFinal = sel.monto - totalComp;
+
+  const handleFile = (e) => {
+    const files = Array.from(e.target.files || []);
+    files.forEach(file => {
+      if (!file.name.toLowerCase().endsWith(".xml")) {
+        setFacturas(prev => [...prev, { nombre: file.name, emisor: file.name, concepto: file.name, total: 0, cuenta: "6121200001", confianza: 0, isCFDI: false }]);
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const txt = ev.target.result;
+        try {
+          const doc = new DOMParser().parseFromString(txt, "application/xml");
+          if (doc.querySelector("parsererror")) { showSnack("XML inválido: " + file.name); return; }
+          const qn = (parent, ln) => { let el = parent.querySelector(ln); if (el) return el; const all = parent.getElementsByTagName("*"); for (let i = 0; i < all.length; i++) if (all[i].localName === ln) return all[i]; return null; };
+          const attr = (el, ...names) => { if (!el) return ""; for (const n of names) { const v = el.getAttribute(n) || el.getAttribute(n.toLowerCase()) || el.getAttribute(n[0].toUpperCase()+n.slice(1)); if (v) return v; } return ""; };
+          const comp = qn(doc, "Comprobante") || doc.documentElement;
+          const total = parseFloat(attr(comp, "Total","total") || "0");
+          const subtotal = parseFloat(attr(comp, "SubTotal","Subtotal","subtotal") || "0");
+          const emisorEl = qn(doc, "Emisor");
+          const emisor = attr(emisorEl, "Nombre","nombre") || attr(emisorEl, "Rfc","rfc") || "";
+          const conceptoEls = Array.from(doc.getElementsByTagName("*")).filter(e => e.localName === "Concepto");
+          const conceptoStr = conceptoEls.map(c => attr(c, "Descripcion","descripcion")).filter(Boolean).join(" · ").slice(0, 80) || "—";
+          const tfd = Array.from(doc.getElementsByTagName("*")).find(e => e.localName === "TimbreFiscalDigital");
+          const uuid = tfd ? (attr(tfd, "UUID","uuid") || "").toUpperCase() : "";
+          let iva = 0;
+          Array.from(doc.getElementsByTagName("*")).filter(e => e.localName === "Traslado").forEach(t => {
+            const imp = attr(t, "Impuesto","impuesto");
+            if (imp === "002" || imp.toUpperCase() === "IVA") iva += parseFloat(attr(t, "Importe","importe") || "0") || 0;
+          });
+          if (!iva && total && subtotal) iva = Math.round((total - subtotal) * 100) / 100;
+          const text = (emisor + " " + conceptoStr).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+          let cuenta = "6121200001", confianza = 0.5;
+          if (/(pemex|gasolina|magna|premium|diesel|combustible)/.test(text)) { cuenta = "6120800001"; confianza = 0.96; }
+          else if (/(aeromexico|volaris|vivaaerobus|vuelo|pasaje aereo|boleto)/.test(text)) { cuenta = "6122900001"; confianza = 0.96; }
+          else if (/(tua|asur|aifa|oma|gap aeropuertos)/.test(text)) { cuenta = "6122700001"; confianza = 0.95; }
+          else if (/(hotel|hospedaje|marriott|fiesta inn|holiday|city express|camino real|hilton)/.test(text)) { cuenta = "6122900003"; confianza = 0.95; }
+          else if (/(restaurante|comida|alimento|cafeteria|cena|desayuno)/.test(text)) { cuenta = "6122900005"; confianza = 0.93; }
+          else if (/(caseta|peaje|capufe|autopista)/.test(text)) { cuenta = "6122900002"; confianza = 0.95; }
+          else if (/(estacionamiento|parking)/.test(text)) { cuenta = "6122900004"; confianza = 0.94; }
+          else if (/(hertz|sixt|avis|alamo|renta de auto|renta vehicular)/.test(text)) { cuenta = "6122900006"; confianza = 0.94; }
+          const meta = window.findCuenta(cuenta) || { nombre: cuenta };
+          setFacturas(prev => [...prev, {
+            nombre: file.name, uuid: uuid.slice(0,18) + (uuid.length > 18 ? "…" : ""),
+            emisor, concepto: conceptoStr, subtotal: Math.round(subtotal*100)/100,
+            iva: Math.round(iva*100)/100, total: Math.round(total*100)/100,
+            cuenta, nombreCuenta: meta.nombre, confianza, isCFDI: true,
+          }]);
+        } catch (err) { showSnack("Error al leer: " + file.name); }
+      };
+      reader.readAsText(file, "utf-8");
+    });
+    e.target.value = "";
+  };
+
+  const enviar = () => {
+    if (facturas.length === 0) { showSnack("⚠ Sube al menos una factura"); return; }
+    const id = "CMP-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-4);
+    window.SOLICITUDES.unshift({
+      id, tipo: "comprobacion", concepto: `Comprobación ${sel.id}`,
+      usuario: userId, monto: totalComp, fecha: new Date(),
+      status: "solicitado", anticipoRef: sel.id, comprobantes: facturas.length, cfdi: facturas,
+    });
+    // Actualiza saldo del anticipo
+    const ant = window.SOLICITUDES.find(s => s.id === sel.id);
+    if (ant) {
+      ant.saldoPendiente = Math.max(0, (ant.saldoPendiente || 0) - totalComp);
+      ant.comprobantes = (ant.comprobantes || 0) + facturas.length;
+      if (ant.saldoPendiente === 0) ant.status = "comprobado";
+      else ant.status = "parcial";
+    }
+    showSnack(`✓ Comprobación ${id} enviada`);
+    setTimeout(onDone, 1100);
+  };
+
+  return (
+    <div className="m-pad">
+      {/* Card del anticipo seleccionado */}
+      <div className="m-card" style={{margin:"0 0 12px", background:"var(--accent-soft)", border:"1px solid oklch(from var(--accent) l c h / 0.3)"}}>
+        <div className="spread" style={{marginBottom:4}}>
+          <span className="mono" style={{fontSize:11, color:"var(--accent)"}}>{sel.id}</span>
+          <button className="btn sm ghost" onClick={() => setSel(null)} style={{padding:"2px 8px", fontSize:11}}>Cambiar</button>
+        </div>
+        <div style={{fontSize:13, fontWeight:500}}>{sel.concepto}</div>
+        <div className="spread" style={{marginTop:8}}>
+          <span className="muted" style={{fontSize:11}}>Anticipo {window.fmtMXN(sel.monto)}</span>
+          <span className="mono" style={{fontSize:12, fontWeight:600}}>Saldo {window.fmtMXN(sel.saldoPendiente)}</span>
+        </div>
+      </div>
+
+      {/* Drop zone */}
+      <div className="dropzone" style={{padding:22, marginBottom:12, cursor:"pointer"}} onClick={() => document.getElementById("mc-file-input").click()}>
+        <div className="dropzone-icon"><Icon name="upload" size={20}/></div>
+        <div className="dropzone-title" style={{fontSize:13}}>Sube XML + PDF de cada factura</div>
+        <div className="dropzone-sub" style={{fontSize:11}}>Auto-extraemos RFC, total e IVA</div>
+      </div>
+      <input id="mc-file-input" type="file" multiple accept=".xml,.pdf,.jpg,.jpeg,.png" style={{display:"none"}} onChange={handleFile}/>
+
+      {/* Facturas */}
+      {facturas.map((f, i) => (
+        <div key={i} className="m-card" style={{margin:"0 0 8px"}}>
+          <div className="spread" style={{marginBottom:6}}>
+            <div style={{fontSize:12, fontWeight:600, flex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginRight:8}}>{f.nombre}</div>
+            <button onClick={() => setFacturas(prev => prev.filter((_, j) => j !== i))} style={{background:"none", border:"none", color:"var(--text-3)", cursor:"pointer", fontSize:16, lineHeight:1}}>×</button>
+          </div>
+          {f.isCFDI ? (
+            <>
+              <div className="spread" style={{padding:"2px 0"}}><span className="muted" style={{fontSize:11}}>Emisor</span><strong style={{fontSize:12}}>{f.emisor || "—"}</strong></div>
+              <div className="spread" style={{padding:"2px 0"}}><span className="muted" style={{fontSize:11}}>Total</span><strong className="mono" style={{fontSize:13}}>{window.fmtMXN(f.total)}</strong></div>
+              <div style={{marginTop:6, display:"flex", alignItems:"center", justifyContent:"space-between"}}>
+                <div>
+                  <div style={{fontSize:11, fontWeight:600}}>{f.nombreCuenta}</div>
+                  <div className="mono" style={{fontSize:10, color:"var(--text-3)"}}>{f.cuenta}</div>
+                </div>
+                <span style={{padding:"2px 8px", borderRadius:20, fontSize:10, fontWeight:500, background:f.confianza >= 0.85 ? "var(--success-soft)" : "var(--warn-soft)", color:f.confianza >= 0.85 ? "var(--success)" : "var(--warn)"}}>
+                  {Math.round(f.confianza*100)}% {f.confianza >= 0.85 ? "✓" : "revisar"}
+                </span>
+              </div>
+            </>
+          ) : <div className="muted" style={{fontSize:12}}>Archivo adjunto (no XML)</div>}
+        </div>
+      ))}
+
+      {facturas.length > 0 && (
+        <>
+          <div className="m-card" style={{margin:"12px 0", padding:14}}>
+            <div className="spread" style={{padding:"4px 0"}}><span className="muted">Anticipo</span><strong className="mono">{window.fmtMXN(sel.monto)}</strong></div>
+            <div className="spread" style={{padding:"4px 0"}}><span className="muted">Comprobado</span><strong className="mono">{window.fmtMXN(totalComp)}</strong></div>
+            <div className="divider" style={{margin:"8px 0"}}></div>
+            <div className="spread">
+              <span style={{fontWeight:600}}>{saldoFinal >= 0 ? "A devolver" : "Excedente"}</span>
+              <strong className="mono" style={{fontSize:18, color:saldoFinal === 0 ? "var(--success)" : "var(--accent)"}}>{window.fmtMXN(Math.abs(saldoFinal))}</strong>
+            </div>
+          </div>
+          <button className="btn primary" style={{width:"100%", justifyContent:"center", marginBottom:8}} onClick={enviar}>
+            <Icon name="arrowR" size={13}/> Enviar comprobación
+          </button>
+          <button className="btn" style={{width:"100%", justifyContent:"center"}} onClick={() => setFacturas([])}>Limpiar</button>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ───────────────────────── Reportes (tesorería / admin) ─────────────────────────
 
 function MReportes({ role, userId }) {
@@ -7185,6 +7508,7 @@ const M_TABS = {
   ],
   gerente: [
     {id:"home", label:"Bandeja", icon:"inbox"},
+    {id:"mio", label:"Mi resumen", icon:"dashboard"},
     {id:"equipo", label:"Equipo", icon:"users"},
     {id:"hist", label:"Historial", icon:"history"},
     {id:"profile", label:"Perfil", icon:"settings"},
@@ -7247,16 +7571,29 @@ function MobileApp({ userId, role, onLogout, setPage, openDetail }) {
       headerTitle = "Catálogo de gastos";
       headerSub = `${window.CATALOGO_GASTOS.length} cuentas`;
       body = <MContadorCatalogo/>;
+    } else if (current.name === "nuevo-anticipo") {
+      headerTitle = "Nuevo anticipo";
+      headerSub = "Solicita un viaje o gasto";
+      body = <MNuevoAnticipo userId={userId} onDone={() => { setStack([]); setTab("home"); }} showSnack={showSnack}/>;
+    } else if (current.name === "nuevo-reembolso") {
+      headerTitle = "Nuevo reembolso";
+      headerSub = "Gasto pagado de tu bolsa";
+      body = <MNuevoReembolso userId={userId} onDone={() => { setStack([]); setTab("home"); }}/>;
+    } else if (current.name === "nueva-comprobacion") {
+      headerTitle = "Nueva comprobación";
+      headerSub = "Comprueba un anticipo";
+      body = <MNuevaComprobacion userId={userId} onDone={() => { setStack([]); setTab("home"); }} showSnack={showSnack}/>;
     }
   } else {
     // ── Render tab home del rol ──
     if (role === "usuario") {
-      if (tab === "home")    body = <MUserHome userId={userId} push={push} setTab={setTab} goToPage={goToPage}/>;
+      if (tab === "home")    body = <MUserHome userId={userId} push={push} setTab={setTab}/>;
       if (tab === "scan")    { headerTitle = "Subir factura"; body = <div className="m-pad"><MobileScan userId={userId} onDone={() => setTab("home")}/></div>; }
       if (tab === "list")    { headerTitle = "Mis solicitudes"; body = <MUserList userId={userId} push={push}/>; }
       if (tab === "profile") { headerTitle = "Mi perfil"; body = <MProfile userId={userId} onLogout={onLogout}/>; }
     } else if (role === "gerente") {
       if (tab === "home")    body = <MGerenteBandeja userId={userId} push={push} showSnack={showSnack}/>;
+      if (tab === "mio")     body = <MUserHome userId={userId} push={push} setTab={setTab}/>;
       if (tab === "equipo")  { headerTitle = "Mi equipo"; body = <MGerenteEquipo userId={userId} push={push}/>; }
       if (tab === "hist")    { headerTitle = "Historial"; body = <MGerenteHistorial userId={userId} push={push}/>; }
       if (tab === "profile") { headerTitle = "Mi perfil"; body = <MProfile userId={userId} onLogout={onLogout}/>; }
@@ -7872,6 +8209,15 @@ function App() {
   const [page, setPage] = React.useState(() => DEFAULT_PAGE[TWEAK_DEFAULTS.role] || "dash");
 
   React.useEffect(() => { applyTokens(t); }, [t]);
+
+  // Auto-detectar móvil real y forzar vista móvil al cargar
+  React.useEffect(() => {
+    const mobileUA = /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    const narrowScreen = window.innerWidth < 768;
+    if ((mobileUA || narrowScreen) && t.density !== "mobile") {
+      setTweak("density", "mobile");
+    }
+  }, []); // solo en mount
 
   // ── Login / logout ────────────────────────────────────────────────────────
   const handleLogin = (user) => {
