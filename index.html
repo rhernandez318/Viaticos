@@ -7447,8 +7447,10 @@ function MProfile({ userId, onLogout }) {
   const c = window.findCentro(u.centro);
   const g = u.gerente ? window.findUser(u.gerente) : null;
   const mine = window.SOLICITUDES.filter(s => s.usuario === userId);
+  const [pwdOpen, setPwdOpen] = React.useState(false);
   return (
     <div className="m-pad">
+      {pwdOpen && <CambiarPasswordModal onClose={() => setPwdOpen(false)}/>}
       <div style={{textAlign:"center", padding:"20px 0"}}>
         <div className="avatar lg" style={{margin:"0 auto 12px", width:72, height:72, fontSize:24}}>{u.iniciales}</div>
         <div style={{fontFamily:"var(--f-display)", fontSize:19, fontWeight:600, letterSpacing:"-0.02em"}}>{u.nombre}</div>
@@ -7467,7 +7469,8 @@ function MProfile({ userId, onLogout }) {
         <div className="spread" style={{padding:"6px 0"}}><span className="muted">Solicitudes totales</span><strong className="mono">{mine.length}</strong></div>
         <div className="spread" style={{padding:"6px 0"}}><span className="muted">Anticipos abiertos</span><strong className="mono">{mine.filter(s => s.tipo === "anticipo" && s.saldoPendiente > 0).length}</strong></div>
       </div>
-      <button className="btn" style={{width:"100%", justifyContent:"center", marginTop:14}} onClick={onLogout}><Icon name="logout" size={14}/> Cerrar sesión</button>
+      <button className="btn" style={{width:"100%", justifyContent:"center", marginTop:14}} onClick={() => setPwdOpen(true)}><Icon name="settings" size={14}/> Cambiar contraseña</button>
+      <button className="btn" style={{width:"100%", justifyContent:"center", marginTop:8}} onClick={onLogout}><Icon name="logout" size={14}/> Cerrar sesión</button>
     </div>
   );
 }
@@ -7616,14 +7619,19 @@ function PerfilPage({ userId, onLogout }) {
   const c = window.findCentro(u.centro);
   const g = u.gerente ? window.findUser(u.gerente) : null;
   const mine = window.SOLICITUDES.filter(s => s.usuario === userId);
+  const [pwdOpen, setPwdOpen] = React.useState(false);
   return (
     <>
+      {pwdOpen && <CambiarPasswordModal onClose={() => setPwdOpen(false)}/>}
       <div className="page-head">
         <div>
           <h1 className="page-title">Mi perfil</h1>
           <div className="page-sub">Información de tu cuenta y configuración</div>
         </div>
-        <button className="btn" onClick={onLogout}><Icon name="logout" size={13}/> Cerrar sesión</button>
+        <div className="row">
+          <button className="btn" onClick={() => setPwdOpen(true)}><Icon name="settings" size={13}/> Cambiar contraseña</button>
+          <button className="btn" onClick={onLogout}><Icon name="logout" size={13}/> Cerrar sesión</button>
+        </div>
       </div>
 
       <div className="two-col">
@@ -7992,37 +8000,39 @@ function LoginScreen({ onLogin }) {
     }
   };
 
-  const handleSendToken = (e) => {
+  const handleSendToken = async (e) => {
     e.preventDefault();
     setRecMsg("");
-    const u = window.findUserByEmail(recCorreo.trim());
-    if (!u) { setRecMsg("No encontramos una cuenta con ese correo"); return; }
-    const token = window.generateToken(recCorreo.trim());
-    setSentToken(token);
-    // En producción se enviaría por email — aquí lo mostramos en pantalla
-    setRecMsg("TOKEN_SENT:" + token);
-    setScreen("token");
-  };
-
-  const handleVerifyToken = (e) => {
-    e.preventDefault();
-    if (window.verifyToken(recCorreo.trim(), recToken.trim())) {
-      setScreen("newpwd");
-      setRecMsg("");
-    } else {
-      setRecMsg("Código incorrecto o expirado");
+    if (!recCorreo.trim()) { setRecMsg("Ingresa tu correo"); return; }
+    try {
+      const { error } = await window.sb.auth.resetPasswordForEmail(recCorreo.trim(), {
+        redirectTo: window.location.origin + window.location.pathname,
+      });
+      if (error) throw error;
+      setScreen("sent");
+    } catch (err) {
+      setRecMsg(err.message || "No se pudo enviar el correo de recuperación");
     }
   };
 
-  const handleNewPwd = (e) => {
+  const handleVerifyToken = (e) => {
+    // Ya no se usa — Supabase maneja la verificación con link de email
     e.preventDefault();
-    if (recPwd.length < 4) { setRecMsg("La contraseña debe tener al menos 4 caracteres"); return; }
+    setScreen("login");
+  };
+
+  const handleNewPwd = async (e) => {
+    e.preventDefault();
+    if (recPwd.length < 6) { setRecMsg("La contraseña debe tener al menos 6 caracteres"); return; }
     if (recPwd !== recPwd2) { setRecMsg("Las contraseñas no coinciden"); return; }
-    const u = window.findUserByEmail(recCorreo.trim());
-    if (u) { u.password = recPwd; }
-    delete window.AUTH_TOKENS[recCorreo.trim()];
-    setRecMsg("ok");
-    setTimeout(() => { setScreen("login"); setRecMsg(""); setRecCorreo(""); setRecToken(""); setRecPwd(""); setRecPwd2(""); }, 1800);
+    try {
+      const { error } = await window.sb.auth.updateUser({ password: recPwd });
+      if (error) throw error;
+      setRecMsg("ok");
+      setTimeout(() => { setScreen("login"); setRecMsg(""); setRecCorreo(""); setRecPwd(""); setRecPwd2(""); }, 1800);
+    } catch (err) {
+      setRecMsg(err.message || "No se pudo actualizar la contraseña");
+    }
   };
 
   const cardStyle = {
@@ -8051,18 +8061,18 @@ function LoginScreen({ onLogin }) {
     background:"var(--surface-0,#111214)", zIndex:500
   };
 
-  if (screen === "recovery" || screen === "token" || screen === "newpwd") {
+  if (screen === "recovery" || screen === "sent" || screen === "newpwd") {
     return (
       <div style={wrapStyle}>
         <div style={cardStyle}>
           <div style={{marginBottom:28}}>
             <div style={{fontSize:11,fontWeight:600,letterSpacing:"0.12em",textTransform:"uppercase",color:"var(--accent)",marginBottom:6}}>Viáticos</div>
             <h1 style={{fontSize:22,fontWeight:700,margin:"0 0 4px",letterSpacing:"-0.02em"}}>
-              {screen==="recovery" ? "Recuperar contraseña" : screen==="token" ? "Verificar código" : "Nueva contraseña"}
+              {screen==="recovery" ? "Recuperar contraseña" : screen==="sent" ? "Revisa tu correo" : "Nueva contraseña"}
             </h1>
             <p style={{fontSize:13,color:"var(--text-2,rgba(255,255,255,.5))",margin:0}}>
-              {screen==="recovery" && "Ingresa tu correo para recibir un código"}
-              {screen==="token" && `Código enviado a ${recCorreo}`}
+              {screen==="recovery" && "Te enviaremos un enlace para restablecer tu contraseña"}
+              {screen==="sent" && `Enviamos un correo a ${recCorreo} con instrucciones`}
               {screen==="newpwd" && "Crea tu nueva contraseña"}
             </p>
           </div>
@@ -8071,31 +8081,25 @@ function LoginScreen({ onLogin }) {
             <form onSubmit={handleSendToken} style={{display:"flex",flexDirection:"column",gap:14}}>
               <input style={inputStyle} type="email" placeholder="tu@correo.com"
                 value={recCorreo} onChange={e=>setRecCorreo(e.target.value)} autoFocus/>
-              {recMsg && !recMsg.startsWith("TOKEN_SENT") && (
+              {recMsg && (
                 <div style={{fontSize:12,color:"var(--danger,#e24b4a)"}}>{recMsg}</div>
               )}
-              <button style={btnStyle} type="submit">Enviar código de recuperación</button>
+              <button style={btnStyle} type="submit">Enviar enlace de recuperación</button>
             </form>
           )}
 
-          {screen === "token" && (
-            <form onSubmit={handleVerifyToken} style={{display:"flex",flexDirection:"column",gap:14}}>
-              {/* Simulación: mostramos el token en pantalla */}
-              <div style={{padding:"10px 14px",background:"rgba(255,255,255,.07)",borderRadius:8,fontSize:13}}>
-                <div style={{fontSize:11,opacity:.6,marginBottom:4}}>Código de recuperación (demo — en prod llega por email):</div>
-                <div style={{fontFamily:"monospace",fontSize:22,fontWeight:700,letterSpacing:"0.15em",color:"var(--accent)"}}>{sentToken}</div>
+          {screen === "sent" && (
+            <div style={{display:"flex",flexDirection:"column",gap:14}}>
+              <div style={{padding:"14px 16px",background:"rgba(29,158,117,.12)",border:"1px solid rgba(29,158,117,.4)",borderRadius:8,fontSize:13,color:"var(--success,#1d9e75)"}}>
+                ✓ Correo enviado. Revisa tu bandeja (y carpeta de spam). Sigue el enlace para crear una nueva contraseña.
               </div>
-              <input style={{...inputStyle,fontFamily:"monospace",letterSpacing:"0.15em",textAlign:"center",fontSize:18}}
-                placeholder="XXXXXXXX" maxLength={8}
-                value={recToken} onChange={e=>setRecToken(e.target.value.toUpperCase())} autoFocus/>
-              {recMsg && <div style={{fontSize:12,color:"var(--danger,#e24b4a)"}}>{recMsg}</div>}
-              <button style={btnStyle} type="submit">Verificar código</button>
-            </form>
+              <button style={btnStyle} onClick={()=>{setScreen("login");setRecMsg("");setRecCorreo("");}}>Volver al inicio de sesión</button>
+            </div>
           )}
 
           {screen === "newpwd" && (
             <form onSubmit={handleNewPwd} style={{display:"flex",flexDirection:"column",gap:14}}>
-              <input style={inputStyle} type="password" placeholder="Nueva contraseña (mín. 4 caracteres)"
+              <input style={inputStyle} type="password" placeholder="Nueva contraseña (mín. 6 caracteres)"
                 value={recPwd} onChange={e=>setRecPwd(e.target.value)} autoFocus/>
               <input style={inputStyle} type="password" placeholder="Confirmar contraseña"
                 value={recPwd2} onChange={e=>setRecPwd2(e.target.value)}/>
@@ -8174,12 +8178,138 @@ function LoginScreen({ onLogin }) {
   );
 }
 
+// ── PasswordResetScreen: cuando el usuario llega desde el link de email ──────
+function PasswordResetScreen({ onDone }) {
+  const [pwd, setPwd]   = React.useState("");
+  const [pwd2, setPwd2] = React.useState("");
+  const [msg, setMsg]   = React.useState("");
+  const [done, setDone] = React.useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (pwd.length < 6)  { setMsg("La contraseña debe tener al menos 6 caracteres"); return; }
+    if (pwd !== pwd2)    { setMsg("Las contraseñas no coinciden"); return; }
+    try {
+      const { error } = await window.sb.auth.updateUser({ password: pwd });
+      if (error) throw error;
+      setDone(true);
+      setMsg("");
+      // Cierra sesión de recuperación y regresa al login
+      setTimeout(async () => {
+        await window.sb.auth.signOut();
+        onDone();
+      }, 1800);
+    } catch (err) {
+      setMsg(err.message || "No se pudo actualizar la contraseña");
+    }
+  };
+
+  const cardStyle = {
+    width: 400, background: "var(--surface)", border: "1px solid var(--border)",
+    borderRadius: 16, padding: "36px 40px", boxShadow: "0 24px 64px rgba(0,0,0,.45)"
+  };
+  const inputStyle = {
+    width:"100%", padding:"10px 12px", fontSize:14,
+    border:"1px solid var(--border)", borderRadius:8,
+    background:"var(--surface-2)", color:"var(--text)",
+    fontFamily:"inherit", outline:"none", boxSizing:"border-box"
+  };
+  const btnStyle = {
+    width:"100%", padding:"11px", fontSize:14, fontWeight:600, cursor:"pointer",
+    border:"none", borderRadius:8, background:"var(--accent)", color:"var(--accent-fg,#0a0b0f)",
+    fontFamily:"inherit", marginTop:4
+  };
+
+  return (
+    <div style={{position:"fixed", inset:0, display:"flex", alignItems:"center", justifyContent:"center", background:"var(--bg)", zIndex:500, padding:20}}>
+      <div style={cardStyle}>
+        <div style={{marginBottom:28}}>
+          <div style={{fontSize:11, fontWeight:600, letterSpacing:"0.12em", textTransform:"uppercase", color:"var(--accent)", marginBottom:6}}>Viáticos</div>
+          <h1 style={{fontSize:22, fontWeight:700, margin:"0 0 4px", letterSpacing:"-0.02em"}}>Nueva contraseña</h1>
+          <p style={{fontSize:13, color:"var(--text-3)", margin:0}}>Establece tu nueva contraseña para continuar</p>
+        </div>
+        {done ? (
+          <div style={{padding:"14px 16px", background:"rgba(29,158,117,.12)", border:"1px solid rgba(29,158,117,.4)", borderRadius:8, fontSize:13, color:"var(--success)"}}>
+            ✓ Contraseña actualizada. Te redirigimos al inicio de sesión…
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} style={{display:"flex", flexDirection:"column", gap:14}}>
+            <input style={inputStyle} type="password" placeholder="Nueva contraseña (mín. 6 caracteres)"
+              value={pwd} onChange={e => setPwd(e.target.value)} autoFocus/>
+            <input style={inputStyle} type="password" placeholder="Confirmar contraseña"
+              value={pwd2} onChange={e => setPwd2(e.target.value)}/>
+            {msg && <div style={{fontSize:12, color:"var(--danger)"}}>{msg}</div>}
+            <button style={btnStyle} type="submit">Guardar contraseña</button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Modal: cambiar contraseña desde el perfil (usuario logueado) ─────────────
+function CambiarPasswordModal({ onClose }) {
+  const [pwd, setPwd]     = React.useState("");
+  const [pwd2, setPwd2]   = React.useState("");
+  const [msg, setMsg]     = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setMsg("");
+    if (pwd.length < 6) { setMsg("La contraseña debe tener al menos 6 caracteres"); return; }
+    if (pwd !== pwd2)   { setMsg("Las contraseñas no coinciden"); return; }
+    setLoading(true);
+    try {
+      const { error } = await window.sb.auth.updateUser({ password: pwd });
+      if (error) throw error;
+      setMsg("ok");
+      setTimeout(onClose, 1500);
+    } catch (err) {
+      setMsg(err.message || "No se pudo actualizar la contraseña");
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth:440}}>
+        <div className="modal-head">
+          <h2 className="modal-title">Cambiar contraseña</h2>
+          <div className="icon-btn" onClick={onClose}><Icon name="x" size={14}/></div>
+        </div>
+        <div className="modal-body">
+          <form onSubmit={handleSubmit} style={{display:"flex", flexDirection:"column", gap:12}}>
+            <div className="field">
+              <label>Nueva contraseña</label>
+              <input className="input" type="password" placeholder="Mínimo 6 caracteres"
+                value={pwd} onChange={e => setPwd(e.target.value)} autoFocus/>
+            </div>
+            <div className="field">
+              <label>Confirmar contraseña</label>
+              <input className="input" type="password" placeholder="Repítela"
+                value={pwd2} onChange={e => setPwd2(e.target.value)}/>
+            </div>
+            {msg === "ok" && <div style={{fontSize:13, color:"var(--success)", fontWeight:500}}>✓ Contraseña actualizada</div>}
+            {msg && msg !== "ok" && <div style={{fontSize:12, color:"var(--danger)"}}>{msg}</div>}
+            <div style={{display:"flex", justifyContent:"flex-end", gap:8, marginTop:8}}>
+              <button type="button" className="btn ghost" onClick={onClose}>Cancelar</button>
+              <button type="submit" className="btn primary" disabled={loading}>{loading ? "Guardando…" : "Guardar"}</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main App ─────────────────────────────────────────────────────────────────
 function App() {
   const [t, setTweak]       = window.useTweaks(TWEAK_DEFAULTS);
   const [detailId, setDetailId] = React.useState(null);
   const [session, setSession]   = React.useState(null); // { user } | null
   const [booting, setBooting]   = React.useState(true);
+  const [recoveryMode, setRecoveryMode] = React.useState(false);
 
   const [page, setPage] = React.useState(() => DEFAULT_PAGE[TWEAK_DEFAULTS.role] || "dash");
 
@@ -8196,6 +8326,20 @@ function App() {
       }
       setBooting(false);
     })();
+  }, []);
+
+  // ── Detectar evento PASSWORD_RECOVERY (link de email) ─────────────────────
+  React.useEffect(() => {
+    if (!window.sb) return;
+    const { data: sub } = window.sb.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setRecoveryMode(true);
+        setSession(null);
+      } else if (event === "SIGNED_OUT") {
+        setRecoveryMode(false);
+      }
+    });
+    return () => sub.subscription.unsubscribe();
   }, []);
 
   React.useEffect(() => { applyTokens(t); }, [t]);
@@ -8239,6 +8383,10 @@ function App() {
         </div>
       </div>
     );
+  }
+
+  if (recoveryMode) {
+    return <PasswordResetScreen onDone={() => { setRecoveryMode(false); window.location.hash = ""; }}/>;
   }
 
   if (!session) {
