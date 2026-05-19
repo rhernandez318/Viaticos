@@ -2605,7 +2605,7 @@ Object.assign(window, { Sidebar, Topbar, Stepper, StatusBadge, TipoBadge, Spark,
 
 function UserDashboard({ userId, openDetail, setPage }) {
   const u = window.findUser(userId) || { nombre:"Usuario", iniciales:"?", centro:"", division:"4105", rol:"usuario" };
-  const c = window.findCentro(u.centro);
+  const c = window.findCentro(u.centro) || { nombre: u.centro || "Sin centro", id: u.centro || "" };
   const [filtro, setFiltro] = React.useState("todas");
   const [, forceRender] = React.useReducer(x => x + 1, 0);
   // Recalcular saldos al montar
