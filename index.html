@@ -2845,21 +2845,43 @@ function SolicitarAnticipo({ setPage, userId }) {
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
   window.BORRADORES = window.BORRADORES || [];
 
-  const handleEnviar = () => {
+  const handleEnviar = async () => {
     if (!form.concepto.trim()) { showToast("⚠ Escribe un concepto para continuar"); return; }
     if (!form.destino.trim())  { showToast("⚠ Indica el destino del viaje"); return; }
     if (totalDesg <= 0)        { showToast("⚠ Agrega al menos un concepto con monto"); return; }
-    const id = "ANT-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-4);
+    const uid = userId || (window.USUARIOS[0]&&window.USUARIOS[0].id) || "U001";
+    const u   = window.findUser(uid);
+    const id  = "ANT-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-4);
+    // Persistir en Supabase
+    if (window.sb) {
+      const row = {
+        id, tipo:"anticipo", concepto: form.concepto.trim(),
+        usuario_id: uid, monto: totalDesg,
+        status:"solicitado", saldo_pendiente: totalDesg,
+        centro_id: u&&u.centro ? u.centro : null,
+        destino: form.destino.trim(), notas: form.notas||null,
+        fecha: new Date().toISOString(),
+      };
+      const { error } = await window.sb.from("solicitudes").insert(row);
+      if (error) { showToast("⚠ Error al guardar: " + error.message); return; }
+      if (desglose.length > 0) {
+        await window.sb.from("solicitud_items").insert(
+          desglose.map((d,i)=>({ solicitud_id:id, cuenta:d.cuenta,
+            descripcion:d.desc||d.concepto||"", monto:d.monto, orden:i }))
+        );
+      }
+    }
     const nueva = {
       id, tipo:"anticipo", concepto: form.concepto.trim(),
-      usuario: "U001", monto: totalDesg,
-      fecha: new Date(), status:"solicitado",
-      saldoPendiente: totalDesg, comprobantes: 0,
+      usuario: uid, monto: totalDesg, fecha: new Date(),
+      status:"solicitado", saldoPendiente: totalDesg, comprobantes:0,
+      destino: form.destino, notas: form.notas||null,
     };
     window.SOLICITUDES.unshift(nueva);
     showToast("✓ Anticipo " + id + " enviado a tu gerente");
-    setTimeout(() => setPage && setPage("dash"), 1400);
+    setTimeout(()=>setPage&&setPage("dash"),1400);
   };
+
   const handleBorrador = () => {
     const id = `BOR-${Date.now().toString().slice(-6)}`;
     window.BORRADORES.push({ id, ...form, desglose, fecha: new Date(), tipo: "anticipo" });
@@ -2921,7 +2943,7 @@ function SolicitarAnticipo({ setPage, userId }) {
             <div className="card-sub" style={{marginBottom:14}}>Esta solicitud seguirá:</div>
             <div className="timeline">
               <div className="tl-row"><div className="tl-dot done"><Icon name="check" size={12}/></div><div className="tl-content"><div className="tl-title">Tú</div><div className="tl-meta">Solicitas el anticipo</div></div></div>
-              <div className="tl-row"><div className="tl-dot">2</div><div className="tl-content"><div className="tl-title">Mariana Téllez · Gerente</div><div className="tl-meta">Autorización gerencial</div></div></div>
+              <div className="tl-row"><div className="tl-dot">2</div><div className="tl-content"><div className="tl-title">{(()=>{ const u=window.findUser(userId); const g=u&&u.gerente?window.findUser(u.gerente):null; return g?g.nombre+" · Gerente":"Tu gerente"; })()}</div><div className="tl-meta">Autorización gerencial</div></div></div>
               <div className="tl-row"><div className="tl-dot">3</div><div className="tl-content"><div className="tl-title">Tesorería</div><div className="tl-meta">Liberación de fondos</div></div></div>
             </div>
           </div>
@@ -3432,12 +3454,36 @@ function NuevoReembolso({ setPage, userId }) {
   const [enviado, setEnviado] = React.useState(false);
   const showToast = (msg, ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null),3000); };
 
-  const handleEnviar = () => {
+  const handleEnviar = async () => {
     if (!concepto.trim()) { showToast("Agrega un concepto", false); return; }
     if (items.length === 0) { showToast("Agrega al menos un comprobante", false); return; }
     if (enviado) return;
     const total = items.reduce((a,i)=>a+(i.total||0),0);
     const id = "REM-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-4);
+    const u = window.findUser(uid);
+    // Persistir en Supabase
+    if (window.sb) {
+      const row = {
+        id, tipo:"reembolso", concepto,
+        usuario_id: uid, monto: total,
+        status:"solicitado", saldo_pendiente:0,
+        centro_id: u?.centro || null,
+        comprobantes: items.length,
+        fecha: new Date().toISOString(),
+      };
+      const { error } = await window.sb.from("solicitudes").insert(row);
+      if (error) { showToast("Error al guardar: " + error.message, false); return; }
+      // Guardar CFDIs
+      if (items.length > 0) {
+        const cfdiRows = items.map(it => ({
+          solicitud_id: id, uuid: it.uuid||it.uuidFull||("SIN-UUID-"+Date.now()),
+          emisor: it.emisor, concepto: it.concepto,
+          subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
+          cuenta: it.cuenta, confianza: it.confianza||0.9,
+        }));
+        await window.sb.from("comprobantes_cfdi").insert(cfdiRows);
+      }
+    }
     const nueva = {
       id, tipo:"reembolso", concepto, usuario:uid,
       monto:total, fecha:new Date(), status:"solicitado",
@@ -9117,7 +9163,7 @@ function App() {
             <Topbar role={activeRole} setRole={handleSetRole} crumbs={crumbs} isAdmin={isAdmin}
               userId={userId}
               onOpenDetail={setDetailId}
-              onNew={(activeRole === "usuario" || activeRole === "gerente") ? () => setPage("anticipos") : null}/>
+              onNew={(activeRole === "usuario" || activeRole === "gerente" || activeRole === "admin") ? () => setPage("anticipos") : null}/>
             <div className="content">{content}</div>
           </div>
         </div>
