@@ -8755,19 +8755,29 @@ function App() {
   const [page, setPage] = React.useState(() => DEFAULT_PAGE[TWEAK_DEFAULTS.role] || "dash");
 
   // ── Bootstrap: carga catálogos y verifica sesión existente ────────────────
+  const [dbLoaded, setDbLoaded] = React.useState(false);
+
   React.useEffect(() => {
     (async () => {
-      await window.loadFromDB();
+      // 1. Verificar sesión existente primero (es rápido — solo JWT local)
       const existing = await window.sbGetSession();
       if (existing) {
-        // Cargar solicitudes con la sesión activa (RLS ya aplica)
-        await window.loadSolicitudes();
+        // Mostrar UI inmediatamente con datos locales/seed
         setSession({ user: existing });
         const role = existing.rol;
         setPage(DEFAULT_PAGE[role] || "dash");
         setTweak("role", role);
+        setBooting(false);  // ← mostrar UI YA, sin esperar Supabase
+
+        // 2. Cargar datos reales en background sin bloquear UI
+        await window.loadFromDB();
+        await window.loadSolicitudes();
+        setDbLoaded(true);  // ← fuerza re-render con datos reales
+      } else {
+        // Sin sesión: cargar catálogos y mostrar login
+        await window.loadFromDB();
+        setBooting(false);
       }
-      setBooting(false);
     })();
   }, []);
 
@@ -8797,14 +8807,14 @@ function App() {
   }, []); // solo en mount
 
   // ── Login / logout ────────────────────────────────────────────────────────
-  const handleLogin = async (user) => {
+  const handleLogin = (user) => {
     const roleMap = { usuario:"usuario", gerente:"gerente", tesoreria:"tesoreria", admin:"admin", contador:"contador" };
     const role = roleMap[user.rol] || "usuario";
     setSession({ user });
     setPage(DEFAULT_PAGE[role] || "dash");
     setTweak("role", role);
-    // Cargar solicitudes ahora que hay sesión (RLS aplica por usuario)
-    await window.loadSolicitudes();
+    // Cargar solicitudes en background — UI ya visible
+    window.loadSolicitudes().then(() => setDbLoaded(d => !d));
   };
 
   // Desde la vista móvil: navegar a un formulario y salir del modo móvil
@@ -8823,9 +8833,12 @@ function App() {
     return (
       <div style={{position:"fixed", inset:0, display:"grid", placeItems:"center", background:"var(--bg)", color:"var(--text)"}}>
         <div style={{textAlign:"center"}}>
-          <div style={{fontFamily:"var(--f-display)", fontSize:24, fontWeight:600, letterSpacing:"-0.02em", marginBottom:6}}>Viáticos</div>
-          <div style={{fontSize:13, color:"var(--text-3)"}}>Cargando…</div>
+          <div style={{fontFamily:"var(--f-display)", fontSize:28, fontWeight:700, letterSpacing:"-0.03em", marginBottom:8}}>Viáticos</div>
+          <div style={{fontSize:13, color:"var(--text-3)", marginBottom:20}}>ZAPATA CAMIONES</div>
+          <div style={{width:32, height:32, border:"3px solid var(--border)", borderTopColor:"var(--accent)",
+            borderRadius:"50%", margin:"0 auto", animation:"spin 0.8s linear infinite"}}/>
         </div>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
       </div>
     );
   }
