@@ -1284,6 +1284,78 @@ async function loadFromDB() {
 }
 window.loadFromDB = loadFromDB;
 
+// Carga solicitudes desde Supabase (requiere sesión activa por RLS)
+async function loadSolicitudes() {
+  if (!supabase) return false;
+  try {
+    const { data, error } = await supabase
+      .from('solicitudes')
+      .select(`
+        *,
+        items:solicitud_items(*),
+        cfdi:comprobantes_cfdi(*)
+      `)
+      .order('fecha', { ascending: false })
+      .limit(500);
+
+    if (error) throw error;
+
+    SOLICITUDES.length = 0;
+    (data || []).forEach(s => {
+      SOLICITUDES.push({
+        id:             s.id,
+        tipo:           s.tipo,
+        concepto:       s.concepto,
+        usuario:        s.usuario_id,
+        monto:          parseFloat(s.monto) || 0,
+        fecha:          new Date(s.fecha),
+        status:         s.status,
+        saldoPendiente: parseFloat(s.saldo_pendiente) || 0,
+        anticipoRef:    s.anticipo_ref || null,
+        motivoRechazo:  s.motivo_rechazo || null,
+        comprobantes:   s.comprobantes || 0,
+        destino:        s.destino || null,
+        notas:          s.notas || null,
+        // Items del desglose estimado
+        items: (s.items || []).map(i => ({
+          cuenta: i.cuenta, desc: i.descripcion, monto: parseFloat(i.monto) || 0,
+        })),
+        // Facturas CFDI comprobadas
+        cfdi: (s.cfdi || []).map(c => ({
+          uuid:     c.uuid,
+          emisor:   c.emisor,
+          concepto: c.concepto,
+          subtotal: parseFloat(c.subtotal) || 0,
+          iva:      parseFloat(c.iva) || 0,
+          total:    parseFloat(c.total) || 0,
+          cuenta:   c.cuenta,
+          confianza: parseFloat(c.confianza) || 0.9,
+          archivo_xml_url: c.archivo_xml_url,
+          archivo_pdf_url: c.archivo_pdf_url,
+        })),
+      });
+    });
+
+    // Recalcular saldos de anticipos cruzando comprobaciones
+    SOLICITUDES.filter(s => s.tipo === 'anticipo').forEach(s => {
+      if (typeof calcSaldo === 'function') calcSaldo(s.id);
+    });
+
+    console.log(`✓ Solicitudes cargadas: ${SOLICITUDES.length}`);
+    return true;
+  } catch (err) {
+    console.error("Error cargando solicitudes:", err);
+    return false;
+  }
+}
+window.loadSolicitudes = loadSolicitudes;
+
+// Refresca solicitudes y fuerza re-render — llamar después de crear/actualizar solicitudes
+window.refreshSolicitudes = async (callback) => {
+  await loadSolicitudes();
+  if (typeof callback === 'function') callback();
+};
+
 // Login con Supabase Auth
 async function sbLogin(correo, pwd) {
   if (!supabase) throw new Error("Supabase no inicializado");
@@ -3820,69 +3892,33 @@ function AdminUsuarios() {
     });
   };
 
-  const [toastU, setToastU] = React.useState(null);
-  const showToastU = (msg, ok=true) => { setToastU({msg,ok}); setTimeout(()=>setToastU(null),3500); };
-
-  const save = async (vals) => {
-    const iniciales = (vals.nombre||"").split(" ").map(p=>p[0]).slice(0,2).join("").toUpperCase();
+  const save = (vals) => {
+    const iniciales = vals.nombre.split(" ").map(p=>p[0]).slice(0,2).join("").toUpperCase();
     const exists = users.find(u => u.id === editing.id);
-    const toApply = {...vals, iniciales};
-    if (!toApply.password || !toApply.password.trim()) delete toApply.password;
-
-    if (window.sb) {
-      // Schema: id=UUID, centro_id=TEXT, gerente_id=UUID|null
-      const row = {
-        nombre:     toApply.nombre,
-        correo:     toApply.correo,
-        rol:        toApply.rol,
-        centro_id:  toApply.centro   || null,
-        gerente_id: toApply.gerente  || null,
-        iniciales,
-        division:   toApply.division || "4105",
-        clabe:      toApply.clabe    || null,
-        banco:      toApply.banco    || null,
-        activo:     true,
-      };
-      if (exists) {
-        // UPDATE — no cambiar id ni correo (correo lo maneja auth.users)
-        const { error } = await window.sb.from('usuarios').update(row).eq('id', editing.id);
-        if (error) { showToastU("Error al actualizar: " + error.message, false); return; }
-      } else {
-        // Nuevo usuario: debe existir en auth.users primero
-        // Primero crear en auth con invitación, o insertar si ya existe
-        const newRow = { ...row, correo: toApply.correo };
-        // Intentar con el correo como clave si el auth ya fue creado manualmente
-        const { data: existAuth } = await window.sb
-          .from('usuarios').select('id').eq('correo', toApply.correo).maybeSingle();
-        if (existAuth) {
-          // El auth user ya existe, solo actualizar datos de perfil
-          const { error } = await window.sb.from('usuarios').update(row).eq('correo', toApply.correo);
-          if (error) { showToastU("Error: " + error.message, false); return; }
-          toApply.id = existAuth.id;
-        } else {
-          // Invitar al usuario por correo (Supabase crea auth.user, el trigger crea el perfil)
-          const { data: inv, error: invErr } = await window.sb.auth.admin
-            ? await window.sb.auth.admin.inviteUserByEmail(toApply.correo, { data: { nombre: toApply.nombre, rol: toApply.rol }})
-            : { error: { message: "Usa el panel de Supabase para crear el usuario en auth.users primero, luego aparecerá aquí." }};
-          if (invErr) { showToastU("Para crear usuarios nuevos: crea primero el correo en Supabase Auth, luego edítalo aquí. (" + invErr.message + ")", false); return; }
-        }
-      }
-    }
-
     let updated;
     if (exists) {
+      // No sobreescribir contraseña si se deja vacío
+      const toApply = {...vals, iniciales};
+      if (!toApply.password || !toApply.password.trim()) {
+        delete toApply.password;
+      }
       updated = users.map(u => u.id === editing.id ? {...u, ...toApply} : u);
+      // Actualizar también en window.USUARIOS por referencia (para login)
       const wu = window.USUARIOS.find(u => u.id === editing.id);
       if (wu) Object.assign(wu, toApply);
     } else {
-      const newUser = { ...toApply, id: toApply.id || editing.id, iniciales, activo: true };
+      const newId = vals.id || `U${Date.now().toString().slice(-4)}`;
+      const newUser = {
+        ...editing, ...vals, id: newId, iniciales,
+        password: vals.password && vals.password.trim() ? vals.password.trim() : "1234",
+        activo: true,
+      };
       updated = [...users, newUser];
       window.USUARIOS.push(newUser);
     }
     setUsers(updated);
     window.USUARIOS = updated;
     setEditing(null);
-    showToastU(exists ? "Usuario actualizado ✓" : "Usuario guardado ✓");
   };
 
   const toggleBlock = (block) => {
@@ -3930,10 +3966,6 @@ function AdminUsuarios() {
 
   return (
     <>
-      {toastU && <div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",
-        zIndex:999,background:toastU.ok?"var(--success)":"var(--danger)",color:"#fff",
-        padding:"8px 20px",borderRadius:20,fontSize:13,fontWeight:500,
-        boxShadow:"0 4px 16px rgba(0,0,0,.3)",maxWidth:360,textAlign:"center"}}>{toastU.msg}</div>}
       <div className="page-head">
         <div>
           <h1 className="page-title">Usuarios</h1>
@@ -4076,41 +4108,28 @@ function AdminCentros() {
 
   const openEdit = (c) => setEditing(c || {id:"", nombre:"", depto:"Operaciones"});
 
-  const [toast, setToast] = React.useState(null);
-  const showToast = (msg, ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null),3000); };
-
-  const save = async (vals) => {
+  const save = (vals) => {
     const exists = centros.find(c => c.id === editing.id);
-    const row = { id: vals.id||editing.id, nombre: vals.nombre, depto: vals.depto, division: vals.division||null, activo: true };
-    if (window.sb) {
-      const { error } = exists
-        ? await window.sb.from('centros').update(row).eq('id', editing.id)
-        : await window.sb.from('centros').insert(row);
-      if (error) { showToast("Error al guardar: "+error.message, false); return; }
-    }
     const updated = exists
       ? centros.map(c => c.id===editing.id ? {...c,...vals} : c)
       : [...centros, {...vals, activo: true}];
     setCentros(updated);
     window.CENTROS = updated;
     setEditing(null);
-    showToast(exists ? "Centro actualizado" : "Centro creado");
   };
 
-  const toggleBlock = async (block) => {
-    if (window.sb) await window.sb.from('centros').update({activo:!block}).eq('id',editing.id);
+  const toggleBlock = (block) => {
     const updated = centros.map(c => c.id === editing.id ? { ...c, activo: !block } : c);
     setCentros(updated);
     window.CENTROS = updated;
   };
 
-  const deleteCentro = async () => {
+  const deleteCentro = () => {
     const enUso = window.USUARIOS.filter(u => u.centro === editing.id).length;
     if (enUso > 0) {
-      alert(`No se puede eliminar: ${enUso} usuario(s) asignados. Reasígnalos primero.`);
+      alert(`No se puede eliminar: ${enUso} usuario(s) están asignados a este centro. Primero reasigna o elimina esos usuarios, o bloquéalo en su lugar.`);
       return;
     }
-    if (window.sb) await window.sb.from('centros').update({activo:false}).eq('id',editing.id);
     const updated = centros.filter(c => c.id !== editing.id);
     setCentros(updated);
     window.CENTROS = updated;
@@ -4137,10 +4156,6 @@ function AdminCentros() {
 
   return (
     <>
-      {toast && <div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",
-        zIndex:999,background:toast.ok?"var(--success)":"var(--danger)",color:"#fff",
-        padding:"8px 20px",borderRadius:20,fontSize:13,fontWeight:500,
-        boxShadow:"0 4px 16px rgba(0,0,0,.3)"}}>{toast.msg}</div>}
       <div className="page-head">
         <div>
           <h1 className="page-title">Centros de beneficio</h1>
@@ -4224,24 +4239,13 @@ function AdminCatalogo() {
 
   const openEdit = (c) => setEditing(c || {cuenta:"", nombre:"", grupo:"Transporte"});
 
-  const [toastC, setToastC] = React.useState(null);
-  const showToastC = (msg, ok=true) => { setToastC({msg,ok}); setTimeout(()=>setToastC(null),3000); };
-
-  const save = async (vals) => {
+  const save = (vals) => {
     const exists = cuentas.find(c => c.cuenta===editing.cuenta);
-    const row = { cuenta: vals.cuenta||editing.cuenta, nombre: vals.nombre, grupo: vals.grupo, activo: true };
-    if (window.sb) {
-      const { error } = exists
-        ? await window.sb.from('cuentas_contables').update(row).eq('cuenta', editing.cuenta)
-        : await window.sb.from('cuentas_contables').insert(row);
-      if (error) { showToastC("Error: "+error.message, false); return; }
-    }
     const updated = exists
       ? cuentas.map(c => c.cuenta===editing.cuenta ? {...c,...vals} : c)
       : [...cuentas, {...vals, activo: true}];
     setCuentas(updated);
     window.CATALOGO_GASTOS = updated;
-    showToastC(exists ? "Cuenta actualizada" : "Cuenta creada");
     setEditing(null);
   };
 
@@ -4287,10 +4291,6 @@ function AdminCatalogo() {
 
   return (
     <>
-      {toastC && <div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",
-        zIndex:999,background:toastC.ok?"var(--success)":"var(--danger)",color:"#fff",
-        padding:"8px 20px",borderRadius:20,fontSize:13,fontWeight:500,
-        boxShadow:"0 4px 16px rgba(0,0,0,.3)"}}>{toastC.msg}</div>}
       <div className="page-head">
         <div>
           <h1 className="page-title">Catálogo de gastos</h1>
@@ -8760,6 +8760,8 @@ function App() {
       await window.loadFromDB();
       const existing = await window.sbGetSession();
       if (existing) {
+        // Cargar solicitudes con la sesión activa (RLS ya aplica)
+        await window.loadSolicitudes();
         setSession({ user: existing });
         const role = existing.rol;
         setPage(DEFAULT_PAGE[role] || "dash");
@@ -8795,12 +8797,14 @@ function App() {
   }, []); // solo en mount
 
   // ── Login / logout ────────────────────────────────────────────────────────
-  const handleLogin = (user) => {
+  const handleLogin = async (user) => {
     const roleMap = { usuario:"usuario", gerente:"gerente", tesoreria:"tesoreria", admin:"admin", contador:"contador" };
     const role = roleMap[user.rol] || "usuario";
     setSession({ user });
     setPage(DEFAULT_PAGE[role] || "dash");
     setTweak("role", role);
+    // Cargar solicitudes ahora que hay sesión (RLS aplica por usuario)
+    await window.loadSolicitudes();
   };
 
   // Desde la vista móvil: navegar a un formulario y salir del modo móvil
