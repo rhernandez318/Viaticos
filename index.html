@@ -1294,8 +1294,19 @@ async function loadFromDB() {
       localStorage.setItem("viaticos_catalogs", JSON.stringify({
         centros:  CENTROS,
         cuentas:  CATALOGO_GASTOS,
-        usuarios: USUARIOS.map(u => ({...u, password: undefined})), // no cachear passwords
+        usuarios: USUARIOS.map(u => ({...u, password: undefined})),
+        ts: Date.now(), // timestamp para invalidar caché viejo
       }));
+      // Invalidar caché de solicitudes si cambiaron los usuarios
+      const cachedSols = localStorage.getItem("viaticos_solicitudes");
+      if (cachedSols) {
+        const sols = JSON.parse(cachedSols);
+        const validIds = new Set(USUARIOS.map(u => u.id));
+        const filtered = sols.filter(s => validIds.has(s.usuario));
+        if (filtered.length !== sols.length) {
+          localStorage.setItem("viaticos_solicitudes", JSON.stringify(filtered));
+        }
+      }
     } catch(e) {}
     return true;
   } catch (err) {
@@ -1314,7 +1325,10 @@ async function loadSolicitudes() {
     const cached = localStorage.getItem("viaticos_solicitudes");
     if (cached && SOLICITUDES.length === 0) {
       const parsed = JSON.parse(cached);
-      parsed.forEach(s => {
+      // Solo cachear solicitudes de usuarios que existen en USUARIOS
+      const validUserIds = new Set(USUARIOS.map(u => u.id));
+      const valid = parsed.filter(s => validUserIds.has(s.usuario));
+      valid.forEach(s => {
         SOLICITUDES.push({...s, fecha: new Date(s.fecha)});
       });
       console.log(`✓ Solicitudes desde caché: ${SOLICITUDES.length}`);
@@ -3741,6 +3755,7 @@ function GerenteBandeja({ openDetail, userId, role }) {
             <tbody>
               {filtradas.map(s => {
                 const u = window.findUser(s.usuario);
+                if (!u) return null; // usuario eliminado — ignorar
                 const dias = Math.floor((window.HOY - s.fecha) / 86400000);
                 const urgente = dias > 2;
                 return (
