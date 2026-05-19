@@ -15,7 +15,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
-<title>Viáticos · Control de gastos · ZAPATA CAMIONES · v2026.05.19-1</title>
+<title>Viáticos · Control de gastos · ZAPATA CAMIONES · v2026.05.18-4</title>
 <style>
 /* ============================================
    VIÁTICOS — Sistema de control de gastos
@@ -1246,6 +1246,19 @@ window.sb = supabase;
 // Carga catálogos desde Supabase (centros, cuentas_contables, usuarios)
 async function loadFromDB() {
   if (!supabase) { console.warn("Supabase no disponible — modo offline con datos locales"); return false; }
+
+  // ── Caché local: mostrar datos previos instantáneamente ──────────────
+  try {
+    const cached = localStorage.getItem("viaticos_catalogs");
+    if (cached) {
+      const { centros, cuentas, usuarios } = JSON.parse(cached);
+      if (centros)  { CENTROS.length=0;          centros.forEach(c=>CENTROS.push(c)); }
+      if (cuentas)  { CATALOGO_GASTOS.length=0;  cuentas.forEach(c=>CATALOGO_GASTOS.push(c)); }
+      if (usuarios) { USUARIOS.length=0;          usuarios.forEach(u=>USUARIOS.push(u)); }
+      console.log("✓ Catálogos desde caché local");
+    }
+  } catch(e) {}
+
   try {
     const [centrosRes, cuentasRes, usuariosRes] = await Promise.all([
       supabase.from('centros').select('*').eq('activo', true),
@@ -1276,6 +1289,14 @@ async function loadFromDB() {
     }));
 
     console.log(`✓ Catálogos cargados: ${CENTROS.length} centros, ${CATALOGO_GASTOS.length} cuentas, ${USUARIOS.length} usuarios`);
+    // Guardar en caché para la próxima carga
+    try {
+      localStorage.setItem("viaticos_catalogs", JSON.stringify({
+        centros:  CENTROS,
+        cuentas:  CATALOGO_GASTOS,
+        usuarios: USUARIOS.map(u => ({...u, password: undefined})), // no cachear passwords
+      }));
+    } catch(e) {}
     return true;
   } catch (err) {
     console.error("Error cargando catálogos de Supabase:", err);
@@ -1287,6 +1308,19 @@ window.loadFromDB = loadFromDB;
 // Carga solicitudes desde Supabase (requiere sesión activa por RLS)
 async function loadSolicitudes() {
   if (!supabase) return false;
+
+  // Mostrar solicitudes cacheadas mientras carga Supabase
+  try {
+    const cached = localStorage.getItem("viaticos_solicitudes");
+    if (cached && SOLICITUDES.length === 0) {
+      const parsed = JSON.parse(cached);
+      parsed.forEach(s => {
+        SOLICITUDES.push({...s, fecha: new Date(s.fecha)});
+      });
+      console.log(`✓ Solicitudes desde caché: ${SOLICITUDES.length}`);
+    }
+  } catch(e) {}
+
   try {
     const { data, error } = await supabase
       .from('solicitudes')
@@ -1342,6 +1376,14 @@ async function loadSolicitudes() {
     });
 
     console.log(`✓ Solicitudes cargadas: ${SOLICITUDES.length}`);
+    // Guardar solicitudes recientes en caché (últimas 100)
+    try {
+      const toCache = SOLICITUDES.slice(0, 100).map(s => ({
+        ...s,
+        fecha: s.fecha instanceof Date ? s.fecha.toISOString() : s.fecha,
+      }));
+      localStorage.setItem("viaticos_solicitudes", JSON.stringify(toCache));
+    } catch(e) {}
     return true;
   } catch (err) {
     console.error("Error cargando solicitudes:", err);
