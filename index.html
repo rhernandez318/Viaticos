@@ -6,7 +6,16 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>Viáticos · Control de gastos · Casa Zapata · v2026.05.18-2</title>
+<meta name="theme-color" content="#0a0b0f">
+<meta name="description" content="Control de gastos y viáticos · Casa Zapata">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Viáticos">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<title>Viáticos · Control de gastos · Casa Zapata · v2026.05.18-3</title>
 <style>
 /* ============================================
    VIÁTICOS — Sistema de control de gastos
@@ -1030,6 +1039,14 @@ table.t {
   padding: 30px;
   animation: fadeIn 0.15s;
 }
+@media (max-width: 520px) {
+  .modal-overlay { padding: 12px; }
+  .modal { max-height: 92vh; }
+  .modal-head { padding: 14px 16px; }
+  .modal-body { padding: 16px; }
+  .form-grid.cols-2 { grid-template-columns: 1fr; }
+  .form-grid.cols-3 { grid-template-columns: 1fr; }
+}
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 .modal {
   background: var(--surface);
@@ -1119,6 +1136,16 @@ table.t {
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js" crossorigin="anonymous"></script>
+<script>
+  // Registro del Service Worker (PWA — instalable en Android/iOS)
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("service-worker.js").catch(err => {
+        console.warn("SW no registrado:", err);
+      });
+    });
+  }
+</script>
 <script type="text/babel">
 
 // ═══ data ═══
@@ -1408,6 +1435,10 @@ const Icon = ({ name, size = 16, ...props }) => {
     arrowR: <><path d="M5 12h14M13 5l7 7-7 7"/></>,
     history: <><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/><path d="M12 8v4l2.5 2"/></>,
     sparkle: <><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></>,
+    lock: <><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></>,
+    unlock: <><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.5-2"/></>,
+    trash: <><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1.2 13.2A2 2 0 0 1 15.8 21H8.2a2 2 0 0 1-2-1.8L5 6"/><path d="M10 11v6M14 11v6"/></>,
+    key: <><circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 9.2-9.2"/><path d="m18 5 3 3"/><path d="m15 8 3 3"/></>,
   };
   return <svg {...common}>{paths[name] || null}</svg>;
 };
@@ -2663,7 +2694,7 @@ function SolicitarAnticipo({ setPage }) {
   const [toast, setToast] = React.useState(null);
   const [form, setForm] = React.useState({
     concepto: "Visita comercial Monterrey - 3 días",
-    centro: window.CENTROS[0].id,
+    centro: window.CENTROS[0]?.id || "",
     salida: "14 may 2026",
     regreso: "16 may 2026",
     destino: "Monterrey, NL",
@@ -3708,8 +3739,9 @@ function TesoreriaBandeja({ openDetail }) {
   );
 }
 
-function EditModal({ title, fields, onClose, onSave }) {
+function EditModal({ title, fields, onClose, onSave, onDelete, onBlock, blocked, isNew }) {
   const [vals, setVals] = React.useState(() => Object.fromEntries(fields.map(f => [f.key, f.value ?? ""])));
+  const [confirmDelete, setConfirmDelete] = React.useState(false);
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:560}}>
@@ -3738,9 +3770,33 @@ function EditModal({ title, fields, onClose, onSave }) {
             ))}
           </div>
         </div>
-        <div style={{padding:"14px 22px", borderTop:"1px solid var(--border)", display:"flex", justifyContent:"flex-end", gap:8}}>
-          <button className="btn ghost" onClick={onClose}>Cancelar</button>
-          <button className="btn primary" onClick={() => { onSave(vals); onClose(); }}>Guardar</button>
+        <div style={{padding:"14px 22px", borderTop:"1px solid var(--border)", display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, flexWrap:"wrap"}}>
+          <div style={{display:"flex", gap:8, flexWrap:"wrap"}}>
+            {!isNew && onBlock && (
+              <button className="btn" style={blocked ? {color:"var(--success)"} : {color:"var(--warn)"}}
+                onClick={() => { onBlock(!blocked); onClose(); }}>
+                <Icon name={blocked ? "check" : "lock"} size={13}/>
+                {blocked ? "Desbloquear" : "Bloquear"}
+              </button>
+            )}
+            {!isNew && onDelete && (
+              confirmDelete ? (
+                <button className="btn" style={{background:"var(--danger,#e35858)", color:"#fff", borderColor:"var(--danger,#e35858)"}}
+                  onClick={() => { onDelete(); onClose(); }}>
+                  <Icon name="x" size={13}/> Confirmar eliminar
+                </button>
+              ) : (
+                <button className="btn" style={{color:"var(--danger,#e35858)"}}
+                  onClick={() => setConfirmDelete(true)}>
+                  <Icon name="trash" size={13}/> Eliminar
+                </button>
+              )
+            )}
+          </div>
+          <div style={{display:"flex", gap:8}}>
+            <button className="btn ghost" onClick={onClose}>Cancelar</button>
+            <button className="btn primary" onClick={() => { onSave(vals); onClose(); }}>Guardar</button>
+          </div>
         </div>
       </div>
     </div>
@@ -3753,10 +3809,16 @@ function AdminUsuarios() {
   const [filtro, setFiltro]   = React.useState("todos");
   const [busqueda, setBusqueda] = React.useState("");
 
-  const openEdit = (u) => setEditing(u || {
-    id:"", nombre:"", correo:"", rol:"usuario",
-    centro: window.CENTROS[0].id, gerente: null, iniciales:""
-  });
+  const openEdit = (u) => {
+    if (!u && (!window.CENTROS || window.CENTROS.length === 0)) {
+      alert("Primero crea al menos un centro de beneficio antes de agregar usuarios.");
+      return;
+    }
+    setEditing(u || {
+      id:"", nombre:"", correo:"", rol:"usuario",
+      centro: window.CENTROS[0]?.id || "", gerente: null, iniciales:""
+    });
+  };
 
   const save = (vals) => {
     const iniciales = vals.nombre.split(" ").map(p=>p[0]).slice(0,2).join("").toUpperCase();
@@ -3777,6 +3839,7 @@ function AdminUsuarios() {
       const newUser = {
         ...editing, ...vals, id: newId, iniciales,
         password: vals.password && vals.password.trim() ? vals.password.trim() : "1234",
+        activo: true,
       };
       updated = [...users, newUser];
       window.USUARIOS.push(newUser);
@@ -3784,6 +3847,18 @@ function AdminUsuarios() {
     setUsers(updated);
     window.USUARIOS = updated;
     setEditing(null);
+  };
+
+  const toggleBlock = (block) => {
+    const updated = users.map(u => u.id === editing.id ? { ...u, activo: !block } : u);
+    setUsers(updated);
+    window.USUARIOS = updated;
+  };
+
+  const deleteUser = () => {
+    const updated = users.filter(u => u.id !== editing.id);
+    setUsers(updated);
+    window.USUARIOS = updated;
   };
 
   const exportar = (lista) => {
@@ -3837,6 +3912,10 @@ function AdminUsuarios() {
       {editing && (
         <EditModal
           title={users.find(u=>u.id===editing.id) ? "Editar usuario" : "Nuevo usuario"}
+          isNew={!users.find(u=>u.id===editing.id)}
+          blocked={editing.activo === false}
+          onBlock={toggleBlock}
+          onDelete={deleteUser}
           fields={[
             {key:"id",    label:"Clave",             value:editing.id,      hint:"Identificador único"},
             {key:"nombre",label:"Nombre completo",   value:editing.nombre,  full:true},
@@ -3845,6 +3924,7 @@ function AdminUsuarios() {
               {value:"usuario",   label:"Usuario"},
               {value:"gerente",   label:"Gerente"},
               {value:"tesoreria", label:"Tesorería"},
+              {value:"contador",  label:"Contador"},
               {value:"admin",     label:"Admin"},
             ]},
             {key:"centro", label:"Centro de beneficio", value:editing.centro, type:"select",
@@ -3854,6 +3934,12 @@ function AdminUsuarios() {
             {key:"gerente", label:"Reporta a", value:editing.gerente||"", type:"select",
               options:[{value:"", label:"— ninguno —"},
                 ...users.filter(u=>u.rol==="gerente").map(g=>({value:g.id,label:g.nombre}))]},
+            {key:"password", label: users.find(u=>u.id===editing.id) ? "Restablecer contraseña" : "Contraseña inicial",
+              value: users.find(u=>u.id===editing.id) ? "" : "1234", full:true,
+              placeholder: users.find(u=>u.id===editing.id) ? "Dejar vacío para no cambiarla" : "1234",
+              hint: users.find(u=>u.id===editing.id)
+                ? "El usuario podrá cambiarla desde su perfil"
+                : "El usuario podrá cambiarla desde su perfil al iniciar sesión"},
           ]}
           onClose={() => setEditing(null)}
           onSave={save}
@@ -3900,12 +3986,15 @@ function AdminUsuarios() {
               const c = window.findCentro(u.centro);
               const g = u.gerente ? window.findUser(u.gerente) : null;
               return (
-                <tr key={u.id} onClick={() => openEdit(u)} style={{cursor:"pointer"}}>
+                <tr key={u.id} onClick={() => openEdit(u)} style={{cursor:"pointer", opacity: u.activo === false ? 0.55 : 1}}>
                   <td>
                     <div className="row">
                       <div className="avatar sm">{u.iniciales}</div>
                       <div>
-                        <div style={{fontSize:13}}>{u.nombre}</div>
+                        <div style={{fontSize:13, display:"flex", alignItems:"center", gap:6}}>
+                          {u.nombre}
+                          {u.activo === false && <span className="badge" style={{background:"var(--warn-soft)",color:"var(--warn)",fontSize:9.5,padding:"1px 6px",borderRadius:8,textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:600}}>Bloqueado</span>}
+                        </div>
                         <div className="muted mono" style={{fontSize:11}}>{u.id}</div>
                       </div>
                     </div>
@@ -3951,10 +4040,27 @@ function AdminCentros() {
     const exists = centros.find(c => c.id === editing.id);
     const updated = exists
       ? centros.map(c => c.id===editing.id ? {...c,...vals} : c)
-      : [...centros, vals];
+      : [...centros, {...vals, activo: true}];
     setCentros(updated);
     window.CENTROS = updated;
     setEditing(null);
+  };
+
+  const toggleBlock = (block) => {
+    const updated = centros.map(c => c.id === editing.id ? { ...c, activo: !block } : c);
+    setCentros(updated);
+    window.CENTROS = updated;
+  };
+
+  const deleteCentro = () => {
+    const enUso = window.USUARIOS.filter(u => u.centro === editing.id).length;
+    if (enUso > 0) {
+      alert(`No se puede eliminar: ${enUso} usuario(s) están asignados a este centro. Primero reasigna o elimina esos usuarios, o bloquéalo en su lugar.`);
+      return;
+    }
+    const updated = centros.filter(c => c.id !== editing.id);
+    setCentros(updated);
+    window.CENTROS = updated;
   };
 
   const exportar = () => {
@@ -3996,6 +4102,10 @@ function AdminCentros() {
       {editing && (
         <EditModal
           title={centros.find(c=>c.id===editing.id) ? "Editar centro" : "Nuevo centro"}
+          isNew={!centros.find(c=>c.id===editing.id)}
+          blocked={editing.activo === false}
+          onBlock={toggleBlock}
+          onDelete={deleteCentro}
           fields={[
             {key:"id",     label:"Clave",         value:editing.id},
             {key:"nombre", label:"Nombre",         value:editing.nombre},
@@ -4025,9 +4135,14 @@ function AdminCentros() {
             {centrosFiltrados.map(c => {
               const count = window.USUARIOS.filter(u=>u.centro===c.id).length;
               return (
-                <tr key={c.id} onClick={() => openEdit(c)} style={{cursor:"pointer"}}>
+                <tr key={c.id} onClick={() => openEdit(c)} style={{cursor:"pointer", opacity: c.activo === false ? 0.55 : 1}}>
                   <td className="mono" style={{fontWeight:600}}>{c.id}</td>
-                  <td>{c.nombre}</td>
+                  <td>
+                    <div style={{display:"flex", alignItems:"center", gap:6}}>
+                      {c.nombre}
+                      {c.activo === false && <span className="badge" style={{background:"var(--warn-soft)",color:"var(--warn)",fontSize:9.5,padding:"1px 6px",borderRadius:8,textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:600}}>Bloqueado</span>}
+                    </div>
+                  </td>
                   <td><span className="badge tipo">{c.depto}</span></td>
                   <td className="num">{count}</td>
                   <td className="right" onClick={e=>{e.stopPropagation();openEdit(c);}}>
@@ -4056,10 +4171,22 @@ function AdminCatalogo() {
     const exists = cuentas.find(c => c.cuenta===editing.cuenta);
     const updated = exists
       ? cuentas.map(c => c.cuenta===editing.cuenta ? {...c,...vals} : c)
-      : [...cuentas, vals];
+      : [...cuentas, {...vals, activo: true}];
     setCuentas(updated);
     window.CATALOGO_GASTOS = updated;
     setEditing(null);
+  };
+
+  const toggleBlock = (block) => {
+    const updated = cuentas.map(c => c.cuenta === editing.cuenta ? { ...c, activo: !block } : c);
+    setCuentas(updated);
+    window.CATALOGO_GASTOS = updated;
+  };
+
+  const deleteCuenta = () => {
+    const updated = cuentas.filter(c => c.cuenta !== editing.cuenta);
+    setCuentas(updated);
+    window.CATALOGO_GASTOS = updated;
   };
 
   const exportar = () => {
@@ -4110,6 +4237,10 @@ function AdminCatalogo() {
       {editing && (
         <EditModal
           title={cuentas.find(c=>c.cuenta===editing.cuenta) ? "Editar cuenta" : "Nueva cuenta"}
+          isNew={!cuentas.find(c=>c.cuenta===editing.cuenta)}
+          blocked={editing.activo === false}
+          onBlock={toggleBlock}
+          onDelete={deleteCuenta}
           fields={[
             {key:"cuenta", label:"Número de cuenta", value:editing.cuenta},
             {key:"nombre", label:"Nombre",            value:editing.nombre},
@@ -4141,7 +4272,7 @@ function AdminCatalogo() {
           </thead>
           <tbody>
             {cuentasFiltradas.map(c => (
-              <tr key={c.cuenta} onClick={() => openEdit(c)} style={{cursor:"pointer"}}>
+              <tr key={c.cuenta} onClick={() => openEdit(c)} style={{cursor:"pointer", opacity: c.activo === false ? 0.55 : 1}}>
                 <td className="mono" style={{fontWeight:600}}>{c.cuenta}</td>
                 <td>
                   {c.nombre}
@@ -4150,6 +4281,7 @@ function AdminCatalogo() {
                       background:"var(--accent-soft,rgba(197,242,77,.12))",color:"var(--accent)",
                       fontWeight:600}}>Div. {c.division}</span>
                   )}
+                  {c.activo === false && <span className="badge" style={{marginLeft:8,background:"var(--warn-soft)",color:"var(--warn)",fontSize:9.5,padding:"1px 6px",borderRadius:8,textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:600}}>Bloqueado</span>}
                 </td>
                 <td><span className="badge tipo">{c.grupo}</span></td>
                 <td className="muted" style={{fontSize:12}}>{PALABRAS_CLAVE[c.cuenta] || "—"}</td>
@@ -6694,18 +6826,74 @@ function MContadorPolizas({ push, showSnack }) {
 }
 
 function MContadorCatalogo() {
+  const [cuentas, setCuentas] = React.useState(window.CATALOGO_GASTOS);
+  const [editing, setEditing] = React.useState(null);
+
+  const openEdit = (c) => setEditing(c || { cuenta:"", nombre:"", grupo:"Transporte", _isNew:true });
+
+  const save = (vals) => {
+    if (!vals.cuenta?.trim()) { alert("Falta el número de cuenta"); return; }
+    if (!vals.nombre?.trim()) { alert("Falta el nombre de la cuenta"); return; }
+    const isNew = !!editing._isNew;
+    const record = { cuenta: vals.cuenta.trim(), nombre: vals.nombre.trim(), grupo: vals.grupo };
+    if (isNew) record.activo = true;
+    const updated = isNew
+      ? [...cuentas, record]
+      : cuentas.map(c => c.cuenta === editing.cuenta ? { ...c, ...record } : c);
+    setCuentas(updated);
+    window.CATALOGO_GASTOS = updated;
+    setEditing(null);
+  };
+
+  const toggleBlock = (block) => {
+    const updated = cuentas.map(c => c.cuenta === editing.cuenta ? { ...c, activo: !block } : c);
+    setCuentas(updated);
+    window.CATALOGO_GASTOS = updated;
+  };
+
+  const deleteCuenta = () => {
+    const updated = cuentas.filter(c => c.cuenta !== editing.cuenta);
+    setCuentas(updated);
+    window.CATALOGO_GASTOS = updated;
+  };
+
   return (
     <div className="m-pad">
-      <div style={{fontSize:11, textTransform:"uppercase", letterSpacing:"0.08em", color:"var(--text-3)", margin:"4px 4px 8px", fontWeight:600}}>Catálogo de gastos</div>
-      {window.CATALOGO_GASTOS.map(c => (
-        <div key={c.cuenta} className="m-card" style={{display:"flex", alignItems:"center", gap:12}}>
+      <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", margin:"4px 4px 10px"}}>
+        <div style={{fontSize:11, textTransform:"uppercase", letterSpacing:"0.08em", color:"var(--text-3)", fontWeight:600}}>Catálogo de gastos</div>
+        <button className="btn sm primary" onClick={() => openEdit(null)}><Icon name="plus" size={11}/> Nueva</button>
+      </div>
+      {cuentas.map(c => (
+        <div key={c.cuenta} className="m-card" style={{display:"flex", alignItems:"center", gap:12, cursor:"pointer", opacity: c.activo === false ? 0.55 : 1}} onClick={() => openEdit(c)}>
           <div style={{width:36, height:36, borderRadius:10, background:"var(--accent-soft)", color:"var(--accent)", display:"grid", placeItems:"center"}}><Icon name="book" size={15}/></div>
           <div style={{flex:1, minWidth:0}}>
-            <div style={{fontSize:13, fontWeight:500}}>{c.nombre}</div>
+            <div style={{fontSize:13, fontWeight:500, display:"flex", alignItems:"center", gap:6}}>
+              {c.nombre}
+              {c.activo === false && <span style={{background:"var(--warn-soft)",color:"var(--warn)",fontSize:9,padding:"1px 5px",borderRadius:6,textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:600}}>Bloq</span>}
+            </div>
             <div className="muted mono" style={{fontSize:11, marginTop:2}}>{c.cuenta} · {c.grupo}</div>
           </div>
+          <Icon name="chevR" size={14} style={{color:"var(--text-3)"}}/>
         </div>
       ))}
+
+      {editing && (
+        <EditModal
+          title={editing._isNew ? "Nueva cuenta" : "Editar cuenta"}
+          isNew={!!editing._isNew}
+          blocked={editing.activo === false}
+          onBlock={toggleBlock}
+          onDelete={deleteCuenta}
+          fields={[
+            { key:"cuenta", label:"Número de cuenta", value:editing.cuenta },
+            { key:"nombre", label:"Nombre",            value:editing.nombre, full:true },
+            { key:"grupo",  label:"Grupo",             value:editing.grupo, full:true, type:"select",
+              options:["Transporte","Hospedaje","Alimentos","Impuestos","Otros"].map(g=>({value:g,label:g})) },
+          ]}
+          onClose={() => setEditing(null)}
+          onSave={save}
+        />
+      )}
     </div>
   );
 }
@@ -6754,15 +6942,88 @@ function MAdminHome({ push, goToPage, setTab }) {
 }
 
 function MAdminUsuarios() {
+  const [users, setUsers] = React.useState(window.USUARIOS);
+  const [editing, setEditing] = React.useState(null);
+  const [busqueda, setBusqueda] = React.useState("");
+
+  const openEdit = (u) => {
+    if (!u && (!window.CENTROS || window.CENTROS.length === 0)) {
+      alert("Primero crea al menos un centro de beneficio antes de agregar usuarios.");
+      return;
+    }
+    setEditing(u || {
+      id:"", nombre:"", correo:"", rol:"usuario",
+      centro: window.CENTROS[0]?.id || "", gerente:"", iniciales:"", _isNew:true,
+    });
+  };
+
+  const save = (vals) => {
+    if (!vals.nombre?.trim()) { alert("Falta el nombre del usuario"); return; }
+    if (!vals.correo?.trim()) { alert("Falta el correo del usuario"); return; }
+    const iniciales = vals.nombre.trim().split(/\s+/).map(p=>p[0]||"").slice(0,2).join("").toUpperCase();
+    const isNew = !!editing._isNew;
+    const targetId = isNew ? (vals.id?.trim() || `U${Date.now()}`) : editing.id;
+    const record = {
+      id: targetId,
+      nombre: vals.nombre.trim(),
+      correo: vals.correo.trim(),
+      rol: vals.rol,
+      centro: vals.centro,
+      gerente: vals.gerente || null,
+      iniciales,
+    };
+    if (isNew) {
+      record.password = vals.password?.trim() || "1234";
+      record.activo = true;
+    } else if (vals.password?.trim()) {
+      record.password = vals.password.trim();
+    }
+    const updated = isNew
+      ? [...users, record]
+      : users.map(u => u.id === editing.id ? { ...u, ...record } : u);
+    setUsers(updated);
+    window.USUARIOS = updated;
+    setEditing(null);
+  };
+
+  const toggleBlock = (block) => {
+    const updated = users.map(u => u.id === editing.id ? { ...u, activo: !block } : u);
+    setUsers(updated);
+    window.USUARIOS = updated;
+  };
+
+  const deleteUser = () => {
+    const updated = users.filter(u => u.id !== editing.id);
+    setUsers(updated);
+    window.USUARIOS = updated;
+  };
+
+  const filtrados = users.filter(u => {
+    if (!busqueda.trim()) return true;
+    const q = busqueda.toLowerCase();
+    return u.nombre.toLowerCase().includes(q) || u.correo.toLowerCase().includes(q) || u.id.toLowerCase().includes(q);
+  });
+
   return (
     <div className="m-pad">
-      {window.USUARIOS.map(u => {
+      <div style={{display:"flex", gap:8, marginBottom:10}}>
+        <div className="search" style={{flex:1}}>
+          <Icon name="search" size={14}/>
+          <input placeholder="Buscar nombre, correo, ID…" value={busqueda} onChange={e=>setBusqueda(e.target.value)}/>
+        </div>
+        <button className="btn sm primary" style={{flexShrink:0}} onClick={() => openEdit(null)}><Icon name="plus" size={12}/></button>
+      </div>
+
+      {filtrados.map(u => {
         const c = window.findCentro(u.centro);
         return (
-          <div key={u.id} className="m-card" style={{display:"flex", alignItems:"center", gap:12}}>
+          <div key={u.id} className="m-card" style={{display:"flex", alignItems:"center", gap:12, cursor:"pointer", opacity: u.activo === false ? 0.55 : 1}} onClick={() => openEdit(u)}>
             <div className="avatar sm" style={{width:38, height:38, fontSize:13}}>{u.iniciales}</div>
             <div style={{flex:1, minWidth:0}}>
-              <div style={{fontSize:13, fontWeight:500}}>{u.nombre}</div>
+              <div style={{fontSize:13, fontWeight:500, display:"flex", alignItems:"center", gap:6}}>
+                {u.nombre}
+                {u.activo === false && <span style={{background:"var(--warn-soft)",color:"var(--warn)",fontSize:9,padding:"1px 5px",borderRadius:6,textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:600}}>Bloq</span>}
+              </div>
               <div className="muted" style={{fontSize:11}}>{u.correo}</div>
               <div style={{marginTop:4, display:"flex", gap:6}}>
                 <span className="badge tipo" style={{fontSize:9.5, textTransform:"capitalize"}}>{u.rol}</span>
@@ -6773,26 +7034,134 @@ function MAdminUsuarios() {
           </div>
         );
       })}
+
+      {editing && (
+        <EditModal
+          title={editing._isNew ? "Nuevo usuario" : "Editar usuario"}
+          isNew={!!editing._isNew}
+          blocked={editing.activo === false}
+          onBlock={toggleBlock}
+          onDelete={deleteUser}
+          fields={[
+            { key:"id",     label:"Clave",              value:editing.id, hint:"Identificador único" },
+            { key:"nombre", label:"Nombre completo",    value:editing.nombre, full:true },
+            { key:"correo", label:"Correo electrónico", value:editing.correo, full:true },
+            { key:"rol",    label:"Rol",                value:editing.rol, type:"select", options:[
+              { value:"usuario",   label:"Usuario" },
+              { value:"gerente",   label:"Gerente" },
+              { value:"tesoreria", label:"Tesorería" },
+              { value:"contador",  label:"Contador" },
+              { value:"admin",     label:"Admin" },
+            ]},
+            { key:"centro", label:"Centro de beneficio", value:editing.centro, type:"select",
+              options: window.CENTROS.map(c => ({ value:c.id, label:`${c.id} · ${c.nombre}` })) },
+            { key:"gerente", label:"Reporta a", value:editing.gerente || "", full:true, type:"select",
+              options: [{ value:"", label:"— ninguno —" },
+                ...users.filter(g => g.rol === "gerente").map(g => ({ value:g.id, label:g.nombre }))] },
+            { key:"password",
+              label: editing._isNew ? "Contraseña inicial" : "Restablecer contraseña",
+              value: editing._isNew ? "1234" : "",
+              full: true,
+              placeholder: editing._isNew ? "1234" : "Dejar vacío para no cambiarla",
+              hint: "El usuario podrá cambiarla desde su perfil" },
+          ]}
+          onClose={() => setEditing(null)}
+          onSave={save}
+        />
+      )}
     </div>
   );
 }
 
 function MAdminCentros() {
+  const [centros, setCentros] = React.useState(window.CENTROS);
+  const [editing, setEditing] = React.useState(null);
+  const [busqueda, setBusqueda] = React.useState("");
+
+  const openEdit = (c) => setEditing(c || { id:"", nombre:"", depto:"Operaciones", _isNew:true });
+
+  const save = (vals) => {
+    if (!vals.id?.trim()) { alert("Falta la clave del centro"); return; }
+    if (!vals.nombre?.trim()) { alert("Falta el nombre del centro"); return; }
+    const isNew = !!editing._isNew;
+    const record = { id: vals.id.trim(), nombre: vals.nombre.trim(), depto: vals.depto };
+    if (isNew) record.activo = true;
+    const updated = isNew
+      ? [...centros, record]
+      : centros.map(c => c.id === editing.id ? { ...c, ...record } : c);
+    setCentros(updated);
+    window.CENTROS = updated;
+    setEditing(null);
+  };
+
+  const toggleBlock = (block) => {
+    const updated = centros.map(c => c.id === editing.id ? { ...c, activo: !block } : c);
+    setCentros(updated);
+    window.CENTROS = updated;
+  };
+
+  const deleteCentro = () => {
+    const enUso = window.USUARIOS.filter(u => u.centro === editing.id).length;
+    if (enUso > 0) {
+      alert(`No se puede eliminar: ${enUso} usuario(s) están asignados a este centro. Bloquéalo en su lugar.`);
+      return;
+    }
+    const updated = centros.filter(c => c.id !== editing.id);
+    setCentros(updated);
+    window.CENTROS = updated;
+  };
+
+  const filtrados = centros.filter(c => {
+    if (!busqueda.trim()) return true;
+    const q = busqueda.toLowerCase();
+    return c.id.toLowerCase().includes(q) || c.nombre.toLowerCase().includes(q) || c.depto.toLowerCase().includes(q);
+  });
+
   return (
     <div className="m-pad">
-      {window.CENTROS.map(c => {
+      <div style={{display:"flex", gap:8, marginBottom:10}}>
+        <div className="search" style={{flex:1}}>
+          <Icon name="search" size={14}/>
+          <input placeholder="Buscar clave, nombre, depto…" value={busqueda} onChange={e=>setBusqueda(e.target.value)}/>
+        </div>
+        <button className="btn sm primary" style={{flexShrink:0}} onClick={() => openEdit(null)}><Icon name="plus" size={12}/></button>
+      </div>
+
+      {filtrados.map(c => {
         const usuarios = window.USUARIOS.filter(u => u.centro === c.id).length;
         return (
-          <div key={c.id} className="m-card" style={{display:"flex", alignItems:"center", gap:12}}>
+          <div key={c.id} className="m-card" style={{display:"flex", alignItems:"center", gap:12, cursor:"pointer", opacity: c.activo === false ? 0.55 : 1}} onClick={() => openEdit(c)}>
             <div style={{width:36, height:36, borderRadius:10, background:"var(--info-soft)", color:"var(--info)", display:"grid", placeItems:"center"}}><Icon name="home" size={15}/></div>
             <div style={{flex:1, minWidth:0}}>
-              <div style={{fontSize:13, fontWeight:500}}>{c.nombre}</div>
+              <div style={{fontSize:13, fontWeight:500, display:"flex", alignItems:"center", gap:6}}>
+                {c.nombre}
+                {c.activo === false && <span style={{background:"var(--warn-soft)",color:"var(--warn)",fontSize:9,padding:"1px 5px",borderRadius:6,textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:600}}>Bloq</span>}
+              </div>
               <div className="muted mono" style={{fontSize:11, marginTop:2}}>{c.id} · {c.depto}</div>
             </div>
             <div className="muted" style={{fontSize:11}}>{usuarios} usrs</div>
+            <Icon name="chevR" size={14} style={{color:"var(--text-3)"}}/>
           </div>
         );
       })}
+
+      {editing && (
+        <EditModal
+          title={editing._isNew ? "Nuevo centro" : "Editar centro"}
+          isNew={!!editing._isNew}
+          blocked={editing.activo === false}
+          onBlock={toggleBlock}
+          onDelete={deleteCentro}
+          fields={[
+            { key:"id",     label:"Clave",        value:editing.id },
+            { key:"nombre", label:"Nombre",       value:editing.nombre },
+            { key:"depto",  label:"Departamento", value:editing.depto, full:true, type:"select",
+              options:["Operaciones","Refacciones","Comercial","Administración","Servicio","Finanzas","TI","Marketing"].map(d=>({value:d,label:d})) },
+          ]}
+          onClose={() => setEditing(null)}
+          onSave={save}
+        />
+      )}
     </div>
   );
 }
@@ -6801,7 +7170,7 @@ function MAdminCentros() {
 
 function MNuevoAnticipo({ userId, onDone, showSnack }) {
   const [form, setForm] = React.useState({
-    concepto: "", centro: window.CENTROS[0].id,
+    concepto: "", centro: window.CENTROS[0]?.id || "",
     salida: "", regreso: "", destino: "", notas: "",
   });
   const [lineas, setLineas] = React.useState([
