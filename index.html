@@ -3327,7 +3327,7 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
   );
 }
 
-function Reembolsos({ userId }) {
+function Reembolsos({ userId, setPage }) {
   const mine = window.SOLICITUDES.filter(s => s.usuario === userId && s.tipo === "reembolso");
   const all = window.SOLICITUDES.filter(s => s.tipo === "reembolso");
   return (
@@ -3337,7 +3337,7 @@ function Reembolsos({ userId }) {
           <h1 className="page-title">Reembolsos</h1>
           <div className="page-sub">Gastos que pagaste de tu bolsa sin anticipo previo</div>
         </div>
-        <button className="btn primary"><Icon name="plus" size={14}/> Nuevo reembolso</button>
+        <button className="btn primary" onClick={()=>setPage&&setPage("nuevo-reembolso")}><Icon name="plus" size={14}/> Nuevo reembolso</button>
       </div>
 
       {(() => {
@@ -3410,7 +3410,95 @@ function Reembolsos({ userId }) {
   );
 }
 
-Object.assign(window, { UserDashboard, SolicitarAnticipo, NuevaComprobacion, Reembolsos });
+function NuevoReembolso({ setPage, userId }) {
+  const uid = userId || "U001";
+  const [items, setItems] = React.useState([]);
+  const [concepto, setConcepto] = React.useState("");
+  const [toast, setToast] = React.useState(null);
+  const [enviado, setEnviado] = React.useState(false);
+  const showToast = (msg, ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null),3000); };
+
+  const handleEnviar = () => {
+    if (!concepto.trim()) { showToast("Agrega un concepto", false); return; }
+    if (items.length === 0) { showToast("Agrega al menos un comprobante", false); return; }
+    if (enviado) return;
+    const total = items.reduce((a,i)=>a+(i.total||0),0);
+    const id = "REM-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-4);
+    const nueva = {
+      id, tipo:"reembolso", concepto, usuario:uid,
+      monto:total, fecha:new Date(), status:"solicitado",
+      comprobantes:items.length, cfdi:items, saldoPendiente:0,
+    };
+    window.SOLICITUDES.unshift(nueva);
+    setEnviado(true);
+    showToast("✓ Reembolso " + id + " enviado");
+    setTimeout(()=>setPage&&setPage("reembolsos"),1400);
+  };
+
+  return (
+    <>
+      {toast && <div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",
+        zIndex:999,background:toast.ok?"var(--success)":"var(--danger)",color:"#fff",
+        padding:"8px 20px",borderRadius:20,fontSize:13,fontWeight:500,
+        boxShadow:"0 4px 16px rgba(0,0,0,.3)"}}>{toast.msg}</div>}
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Nuevo reembolso</h1>
+          <div className="page-sub">Gastos que pagaste de tu bolsa sin anticipo previo</div>
+        </div>
+        <button className="btn ghost" onClick={()=>setPage&&setPage("reembolsos")}>
+          <Icon name="x" size={14}/> Cancelar
+        </button>
+      </div>
+      <div className="card" style={{marginBottom:14}}>
+        <div className="field">
+          <label>Concepto del gasto</label>
+          <input className="input" placeholder="Ej. Comida con cliente, gasolina viaje Gdl-Mex…"
+            value={concepto} onChange={e=>setConcepto(e.target.value)}/>
+        </div>
+      </div>
+      <div className="card" style={{marginBottom:14}}>
+        <div className="card-head">
+          <h3 className="card-title">Comprobantes (CFDI)</h3>
+          <div className="card-sub">Sube los XML de las facturas</div>
+        </div>
+        <CompUploader onAdd={newItems=>setItems(prev=>[...prev,...newItems])}/>
+        {items.length>0&&(
+          <table className="t" style={{marginTop:12}}>
+            <thead><tr><th>Emisor</th><th>Concepto</th><th>Cuenta</th><th className="right">Total</th><th></th></tr></thead>
+            <tbody>
+              {items.map((it,i)=>{
+                const meta=window.findCuenta&&window.findCuenta(it.cuenta)||{nombre:it.cuenta||"—"};
+                return (
+                  <tr key={i}>
+                    <td style={{fontSize:12}}>{it.emisor||"—"}</td>
+                    <td style={{fontSize:12,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.concepto||"—"}</td>
+                    <td style={{fontSize:11}}>{meta.nombre}</td>
+                    <td className="num">{window.fmtMXN(it.total||0)}</td>
+                    <td><div className="icon-btn" onClick={()=>setItems(prev=>prev.filter((_,j)=>j!==i))}><Icon name="x" size={12}/></div></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot><tr>
+              <td colSpan={3} style={{textAlign:"right",fontWeight:600,padding:"8px 10px"}}>Total</td>
+              <td className="num" style={{fontWeight:700}}>{window.fmtMXN(items.reduce((a,i)=>a+(i.total||0),0))}</td>
+              <td/>
+            </tr></tfoot>
+          </table>
+        )}
+      </div>
+      <div style={{display:"flex",justifyContent:"flex-end",gap:10}}>
+        <button className="btn ghost" onClick={()=>setPage&&setPage("reembolsos")}>Cancelar</button>
+        <button className="btn primary" onClick={handleEnviar} disabled={enviado}>
+          <Icon name="check" size={14}/> {enviado?"Enviando…":"Enviar reembolso"}
+        </button>
+      </div>
+    </>
+  );
+}
+
+Object.assign(window, { UserDashboard, SolicitarAnticipo, NuevaComprobacion, Reembolsos, NuevoReembolso });
 
 // ═══ role-pages ═══
 // Viáticos — Gerente, Tesorería, Admin pages
@@ -8284,10 +8372,10 @@ const DEFAULT_PAGE = {
 // Páginas válidas por rol — cualquier página fuera de esta lista
 // cae al default en lugar de renderizar null (pantalla negra)
 const VALID_PAGES = {
-  usuario:  ["dash","anticipos","comprobaciones","reembolsos","perfil"],
-  gerente:  ["bandeja","equipo","historial","reportes","perfil","mis-solicitudes","anticipos","reembolsos","comprobaciones"],
+  usuario:  ["dash","anticipos","comprobaciones","reembolsos","nuevo-reembolso","perfil"],
+  gerente:  ["bandeja","equipo","historial","reportes","perfil","mis-solicitudes","anticipos","reembolsos","nuevo-reembolso","comprobaciones"],
   tesoreria:["liberacion","pagados","deudores","reportes","perfil"],
-  admin:    ["usuarios","centros","catalogo","reportes","ajustes","perfil","liberacion","pagados","deudores","polizas","bandeja","equipo","historial","dash","anticipos","comprobaciones","reembolsos","mis-solicitudes"],
+  admin:    ["usuarios","centros","catalogo","reportes","ajustes","perfil","liberacion","pagados","deudores","polizas","bandeja","equipo","historial","dash","anticipos","comprobaciones","reembolsos","nuevo-reembolso","mis-solicitudes"],
   contador: ["polizas","catalogo","perfil"],
 };
 
@@ -8299,7 +8387,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     if (page === "dash")           return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
     if (page === "anticipos")      return <SolicitarAnticipo setPage={setPage} userId={userId}/>;
     if (page === "comprobaciones") return <NuevaComprobacion setPage={setPage}/>;
-    if (page === "reembolsos")     return <Reembolsos userId={userId}/>;
+    if (page === "reembolsos")     return <Reembolsos userId={userId} setPage={setPage}/>;
     // fallback
     return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
   }
@@ -8311,7 +8399,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     if (page === "historial")        return <GerenteHistorial openDetail={setDetailId} userId={userId}/>;
     if (page === "mis-solicitudes")  return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
     if (page === "anticipos")        return <SolicitarAnticipo setPage={setPage} userId={userId}/>;
-    if (page === "reembolsos")       return <Reembolsos userId={userId}/>;
+    if (page === "reembolsos")       return <Reembolsos userId={userId} setPage={setPage}/>;
     if (page === "comprobaciones")   return <NuevaComprobacion setPage={setPage} userId={userId}/>;
     return <GerenteBandeja openDetail={setDetailId} userId={userId} role={role}/>;
   }
@@ -8343,7 +8431,8 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     if (page === "dash")            return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
     if (page === "anticipos")       return <SolicitarAnticipo setPage={setPage} userId={userId}/>;
     if (page === "comprobaciones")  return <NuevaComprobacion setPage={setPage}/>;
-    if (page === "reembolsos")      return <Reembolsos userId={userId}/>;
+    if (page === "reembolsos")      return <Reembolsos userId={userId} setPage={setPage}/>;
+    if (page === "nuevo-reembolso") return <NuevoReembolso setPage={setPage} userId={userId}/>;
     if (page === "mis-solicitudes") return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
     // Admin operando como contador
     if (page === "polizas")  return <ContadorPolizas/>;
