@@ -2606,6 +2606,7 @@ Object.assign(window, { Sidebar, Topbar, Stepper, StatusBadge, TipoBadge, Spark,
 function UserDashboard({ userId, openDetail, setPage }) {
   const u = window.findUser(userId) || { nombre:"Usuario", iniciales:"?", centro:"", division:"4105", rol:"usuario" };
   const c = window.findCentro(u.centro) || { nombre: u.centro || "Sin centro", id: u.centro || "" };
+  const mios = window.SOLICITUDES.filter(s => s.usuario === userId);
   const [filtro, setFiltro] = React.useState("todas");
   const [, forceRender] = React.useReducer(x => x + 1, 0);
   // Recalcular saldos al montar
@@ -2642,7 +2643,7 @@ function UserDashboard({ userId, openDetail, setPage }) {
         <div className="kpi">
           <div className="kpi-label">Saldo por comprobar</div>
           <div className="kpi-value">{window.fmtMXN(pendientes)}</div>
-          <div className="kpi-delta down">2 anticipos abiertos</div>
+          <div className="kpi-delta down">{mios.filter(s=>s.tipo==="anticipo"&&(s.saldoPendiente||0)>0).length} anticipo(s) abierto(s)</div>
           <Spark values={[10,12,8,14,11,15,12,18]} />
         </div>
         <div className="kpi">
@@ -2652,8 +2653,8 @@ function UserDashboard({ userId, openDetail, setPage }) {
         </div>
         <div className="kpi">
           <div className="kpi-label">Reembolsable</div>
-          <div className="kpi-value">{window.fmtMXN(1850)}</div>
-          <div className="kpi-delta up">1 reembolso en flujo</div>
+          <div className="kpi-value">{window.fmtMXN(mios.filter(s=>s.tipo==="reembolso"&&["solicitado","autorizado","liberado"].includes(s.status)).reduce((a,s)=>a+s.monto,0))}</div>
+          <div className="kpi-delta up">{mios.filter(s=>s.tipo==="reembolso"&&["solicitado","autorizado"].includes(s.status)).length} reembolso(s) en flujo</div>
         </div>
         <div className="kpi">
           <div className="kpi-label">Gastado este año</div>
@@ -3297,23 +3298,33 @@ function Reembolsos({ userId }) {
         <button className="btn primary"><Icon name="plus" size={14}/> Nuevo reembolso</button>
       </div>
 
-      <div className="kpi-grid" style={{gridTemplateColumns:"repeat(3, 1fr)"}}>
-        <div className="kpi">
-          <div className="kpi-label">En flujo</div>
-          <div className="kpi-value">{window.fmtMXN(2770)}</div>
-          <div className="kpi-delta neutral">2 solicitudes</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Reembolsado este año</div>
-          <div className="kpi-value">{window.fmtMXN(8420)}</div>
-          <div className="kpi-delta up">12 solicitudes pagadas</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Tiempo promedio de pago</div>
-          <div className="kpi-value">4.2 días</div>
-          <div className="kpi-delta up">−1.1 día vs. mes anterior</div>
-        </div>
-      </div>
+      {(() => {
+        const enFlujo   = mine.filter(s => ["solicitado","autorizado","liberado"].includes(s.status));
+        const pagados   = mine.filter(s => s.status === "liberado");
+        const anio      = new Date().getFullYear();
+        const pagadosAnio = mine.filter(s => s.status === "liberado" && s.fecha.getFullYear() === anio);
+        const totalFlujo = enFlujo.reduce((a,s)=>a+s.monto,0);
+        const totalPagado = pagadosAnio.reduce((a,s)=>a+s.monto,0);
+        return (
+          <div className="kpi-grid" style={{gridTemplateColumns:"repeat(3, 1fr)"}}>
+            <div className="kpi">
+              <div className="kpi-label">En flujo</div>
+              <div className="kpi-value">{window.fmtMXN(totalFlujo)}</div>
+              <div className="kpi-delta neutral">{enFlujo.length} solicitud{enFlujo.length!==1?"es":""}</div>
+            </div>
+            <div className="kpi">
+              <div className="kpi-label">Reembolsado este año</div>
+              <div className="kpi-value" style={{color:"var(--success)"}}>{window.fmtMXN(totalPagado)}</div>
+              <div className="kpi-delta up">{pagadosAnio.length} solicitudes pagadas</div>
+            </div>
+            <div className="kpi">
+              <div className="kpi-label">Total mis reembolsos</div>
+              <div className="kpi-value">{mine.length}</div>
+              <div className="kpi-delta neutral">historial completo</div>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="card">
         <div className="card-head">
