@@ -3758,8 +3758,8 @@ function TesoreriaBandeja({ openDetail }) {
       <div className="kpi-grid">
         <div className="kpi"><div className="kpi-label">Por liberar</div><div className="kpi-value">{items.length}</div><div className="kpi-delta neutral">solicitudes</div></div>
         <div className="kpi"><div className="kpi-label">Monto total</div><div className="kpi-value">{window.fmtMXN(items.reduce((a,s)=>a+s.monto,0))}</div><div className="kpi-delta up">listo para SPEI</div></div>
-        <div className="kpi"><div className="kpi-label">Liberado hoy</div><div className="kpi-value">{window.fmtMXN(48230)}</div><div className="kpi-delta up">8 transferencias</div></div>
-        <div className="kpi"><div className="kpi-label">Saldos abiertos</div><div className="kpi-value">{window.fmtMXN(76200)}</div><div className="kpi-delta down">deuda viva</div></div>
+        <div className="kpi"><div className="kpi-label">Liberado hoy</div><div className="kpi-value">{window.fmtMXN(window.SOLICITUDES.filter(s=>{const d=new Date();const f=s.fecha instanceof Date?s.fecha:new Date(s.fecha);return s.status==="liberado"&&f.toDateString()===d.toDateString();}).reduce((a,s)=>a+s.monto,0))}</div><div className="kpi-delta up">{window.SOLICITUDES.filter(s=>{const d=new Date();const f=s.fecha instanceof Date?s.fecha:new Date(s.fecha);return s.status==="liberado"&&f.toDateString()===d.toDateString();}).length} transferencias hoy</div></div>
+        <div className="kpi"><div className="kpi-label">Saldos abiertos</div><div className="kpi-value">{window.fmtMXN(window.SOLICITUDES.filter(s=>s.tipo==="anticipo"&&(s.saldoPendiente||0)>0).reduce((a,s)=>a+(s.saldoPendiente||0),0))}</div><div className="kpi-delta down">{window.SOLICITUDES.filter(s=>s.tipo==="anticipo"&&(s.saldoPendiente||0)>0).length} anticipo(s) sin comprobar</div></div>
       </div>
 
       {/* Filter bar */}
