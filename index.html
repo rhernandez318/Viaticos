@@ -3362,7 +3362,7 @@ Object.assign(window, { UserDashboard, SolicitarAnticipo, NuevaComprobacion, Ree
 // ═══ role-pages ═══
 // Viáticos — Gerente, Tesorería, Admin pages
 
-function GerenteBandeja({ openDetail, userId }) {
+function GerenteBandeja({ openDetail, userId, role }) {
   const CENTRO_ADMIN = "100010009";
   const userObj = userId ? window.findUser(userId) : null;
   const esAdmin = !role || role === "admin" ||
@@ -8242,7 +8242,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
   }
 
   if (role === "gerente") {
-    if (page === "bandeja")          return <GerenteBandeja openDetail={setDetailId} userId={userId}/>;
+    if (page === "bandeja")          return <GerenteBandeja openDetail={setDetailId} userId={userId} role={role}/>;
     if (page === "reportes")         return <Reportes role={role} userId={userId}/>;
     if (page === "equipo")           return <GerenteEquipo userId={userId}/>;
     if (page === "historial")        return <GerenteHistorial openDetail={setDetailId} userId={userId}/>;
@@ -8250,7 +8250,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     if (page === "anticipos")        return <SolicitarAnticipo setPage={setPage} userId={userId}/>;
     if (page === "reembolsos")       return <Reembolsos userId={userId}/>;
     if (page === "comprobaciones")   return <NuevaComprobacion setPage={setPage} userId={userId}/>;
-    return <GerenteBandeja openDetail={setDetailId} userId={userId}/>;
+    return <GerenteBandeja openDetail={setDetailId} userId={userId} role={role}/>;
   }
 
   if (role === "tesoreria") {
@@ -8273,7 +8273,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     if (page === "pagados")    return <TesoreriaPagados openDetail={setDetailId}/>;
     if (page === "deudores")   return <Deudores role={role} userId={userId}/>;
     // Admin operando como gerente
-    if (page === "bandeja")         return <GerenteBandeja openDetail={setDetailId} userId={userId}/>;
+    if (page === "bandeja")         return <GerenteBandeja openDetail={setDetailId} userId={userId} role={role}/>;
     if (page === "equipo")          return <GerenteEquipo userId={userId}/>;
     if (page === "historial")       return <GerenteHistorial openDetail={setDetailId} userId={userId}/>;
     // Admin operando como usuario
