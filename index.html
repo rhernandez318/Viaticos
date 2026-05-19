@@ -3893,6 +3893,12 @@ function AdminUsuarios() {
     });
   };
 
+  const [toastU, setToastU] = React.useState(null);
+  const showToastU = (msg, ok=true) => {
+    setToastU({msg, ok});
+    setTimeout(() => setToastU(null), 4000);
+  };
+
   const WORKER_URL = "https://viaticos-admin.rhernandez-e52.workers.dev";
 
   const callWorker = async (action, payload) => {
@@ -4000,6 +4006,14 @@ function AdminUsuarios() {
 
   return (
     <>
+      {toastU && (
+        <div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",
+          zIndex:999,background:toastU.ok?"var(--success)":"var(--danger)",color:"#fff",
+          padding:"10px 24px",borderRadius:20,fontSize:13,fontWeight:500,
+          boxShadow:"0 4px 16px rgba(0,0,0,.4)",maxWidth:380,textAlign:"center"}}>
+          {toastU.msg}
+        </div>
+      )}
       <div className="page-head">
         <div>
           <h1 className="page-title">Usuarios</h1>
