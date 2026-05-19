@@ -2604,7 +2604,7 @@ Object.assign(window, { Sidebar, Topbar, Stepper, StatusBadge, TipoBadge, Spark,
 // Viáticos — User-facing pages
 
 function UserDashboard({ userId, openDetail, setPage }) {
-  const u = window.findUser(userId);
+  const u = window.findUser(userId) || { nombre:"Usuario", iniciales:"?", centro:"", division:"4105", rol:"usuario" };
   const c = window.findCentro(u.centro);
   const [filtro, setFiltro] = React.useState("todas");
   const [, forceRender] = React.useReducer(x => x + 1, 0);
@@ -2762,7 +2762,7 @@ function UserDashboard({ userId, openDetail, setPage }) {
   );
 }
 
-function SolicitarAnticipo({ setPage }) {
+function SolicitarAnticipo({ setPage, userId }) {
   const [toast, setToast] = React.useState(null);
   const [form, setForm] = React.useState({
     concepto: "Visita comercial Monterrey - 3 días",
@@ -3365,7 +3365,8 @@ Object.assign(window, { UserDashboard, SolicitarAnticipo, NuevaComprobacion, Ree
 function GerenteBandeja({ openDetail, userId }) {
   const CENTRO_ADMIN = "100010009";
   const userObj = userId ? window.findUser(userId) : null;
-  const esAdmin = userObj && userObj.centro === CENTRO_ADMIN;
+  const esAdmin = !role || role === "admin" ||
+    (userObj && userObj.centro === CENTRO_ADMIN);
   const gerenteId = userId || "U101";
   const teamIds = esAdmin
     ? null  // admin de área ve todas las solicitudes
@@ -3892,32 +3893,59 @@ function AdminUsuarios() {
     });
   };
 
-  const save = (vals) => {
-    const iniciales = vals.nombre.split(" ").map(p=>p[0]).slice(0,2).join("").toUpperCase();
+  const WORKER_URL = "https://viaticos-admin.rhernandez-e52.workers.dev";
+
+  const callWorker = async (action, payload) => {
+    const res = await fetch(WORKER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, payload }),
+    });
+    if (!res.ok) throw new Error("Worker " + res.status);
+    return res.json();
+  };
+
+  const save = async (vals) => {
+    const iniciales = (vals.nombre||"").split(" ").map(p=>p[0]).slice(0,2).join("").toUpperCase();
     const exists = users.find(u => u.id === editing.id);
-    let updated;
-    if (exists) {
-      // No sobreescribir contraseña si se deja vacío
-      const toApply = {...vals, iniciales};
-      if (!toApply.password || !toApply.password.trim()) {
-        delete toApply.password;
+    const toApply = {...vals, iniciales};
+    try {
+      if (exists) {
+        // Editar: actualizar perfil directo en Supabase
+        if (window.sb) {
+          const row = { nombre: toApply.nombre, rol: toApply.rol,
+            centro_id: toApply.centro||null, gerente_id: toApply.gerente||null,
+            division: toApply.division||"4105", clabe: toApply.clabe||null,
+            banco: toApply.banco||null, iniciales };
+          const { error } = await window.sb.from("usuarios").update(row).eq("id", editing.id);
+          if (error) { showToastU("Error: " + error.message, false); return; }
+          if (toApply.password && toApply.password.trim())
+            await callWorker("resetPassword", { id: editing.id, password: toApply.password.trim() });
+        }
+        const updated = users.map(u => u.id===editing.id ? {...u,...toApply} : u);
+        const wu = window.USUARIOS.find(u => u.id===editing.id);
+        if (wu) Object.assign(wu, toApply);
+        setUsers(updated); window.USUARIOS = updated;
+        showToastU("Usuario actualizado ✓");
+      } else {
+        // Nuevo usuario vía Worker
+        if (!toApply.correo?.trim()) { showToastU("Correo obligatorio", false); return; }
+        showToastU("Creando usuario…");
+        const data = await callWorker("createUser", {
+          correo: toApply.correo.trim(),
+          password: toApply.password?.trim() || "Temporal1234!",
+          nombre: toApply.nombre, rol: toApply.rol,
+          centro: toApply.centro||null, gerente: toApply.gerente||null,
+          division: toApply.division||"4105",
+        });
+        if (!data.id) { showToastU("Error: " + (data.message||"No se pudo crear"), false); return; }
+        const newUser = {...toApply, id: data.id, iniciales, activo: true};
+        const updated = [...users, newUser];
+        window.USUARIOS.push(newUser);
+        setUsers(updated); window.USUARIOS = updated;
+        showToastU("Usuario creado ✓ · Contraseña temporal: " + (toApply.password||"Temporal1234!"));
       }
-      updated = users.map(u => u.id === editing.id ? {...u, ...toApply} : u);
-      // Actualizar también en window.USUARIOS por referencia (para login)
-      const wu = window.USUARIOS.find(u => u.id === editing.id);
-      if (wu) Object.assign(wu, toApply);
-    } else {
-      const newId = vals.id || `U${Date.now().toString().slice(-4)}`;
-      const newUser = {
-        ...editing, ...vals, id: newId, iniciales,
-        password: vals.password && vals.password.trim() ? vals.password.trim() : "1234",
-        activo: true,
-      };
-      updated = [...users, newUser];
-      window.USUARIOS.push(newUser);
-    }
-    setUsers(updated);
-    window.USUARIOS = updated;
+    } catch(err) { showToastU("Error: " + err.message, false); return; }
     setEditing(null);
   };
 
@@ -3927,10 +3955,16 @@ function AdminUsuarios() {
     window.USUARIOS = updated;
   };
 
-  const deleteUser = () => {
+  const deleteUser = async () => {
+    try {
+      await callWorker("deleteUser", { id: editing.id });
+    } catch(e) {
+      if (window.sb) await window.sb.from("usuarios").update({activo:false}).eq("id",editing.id);
+    }
     const updated = users.filter(u => u.id !== editing.id);
-    setUsers(updated);
-    window.USUARIOS = updated;
+    setUsers(updated); window.USUARIOS = updated;
+    setEditing(null);
+    showToastU("Usuario dado de baja ✓");
   };
 
   const exportar = (lista) => {
@@ -4005,7 +4039,7 @@ function AdminUsuarios() {
               options:[{value:"4105",label:"4105"},{value:"4106",label:"4106"}]},
             {key:"gerente", label:"Reporta a", value:editing.gerente||"", type:"select",
               options:[{value:"", label:"— ninguno —"},
-                ...users.filter(u=>u.rol==="gerente").map(g=>({value:g.id,label:g.nombre}))]},
+                ...users.filter(u=>u.rol==="gerente"||u.rol==="admin").map(g=>({value:g.id,label:g.nombre+" ("+g.rol+")" }))]},
             {key:"password", label: users.find(u=>u.id===editing.id) ? "Restablecer contraseña" : "Contraseña inicial",
               value: users.find(u=>u.id===editing.id) ? "" : "1234", full:true,
               placeholder: users.find(u=>u.id===editing.id) ? "Dejar vacío para no cambiarla" : "1234",
@@ -7064,10 +7098,16 @@ function MAdminUsuarios() {
     window.USUARIOS = updated;
   };
 
-  const deleteUser = () => {
+  const deleteUser = async () => {
+    try {
+      await callWorker("deleteUser", { id: editing.id });
+    } catch(e) {
+      if (window.sb) await window.sb.from("usuarios").update({activo:false}).eq("id",editing.id);
+    }
     const updated = users.filter(u => u.id !== editing.id);
-    setUsers(updated);
-    window.USUARIOS = updated;
+    setUsers(updated); window.USUARIOS = updated;
+    setEditing(null);
+    showToastU("Usuario dado de baja ✓");
   };
 
   const filtrados = users.filter(u => {
@@ -8180,7 +8220,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
 
   if (role === "usuario") {
     if (page === "dash")           return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
-    if (page === "anticipos")      return <SolicitarAnticipo setPage={setPage}/>;
+    if (page === "anticipos")      return <SolicitarAnticipo setPage={setPage} userId={userId}/>;
     if (page === "comprobaciones") return <NuevaComprobacion setPage={setPage}/>;
     if (page === "reembolsos")     return <Reembolsos userId={userId}/>;
     // fallback
@@ -8193,7 +8233,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     if (page === "equipo")           return <GerenteEquipo userId={userId}/>;
     if (page === "historial")        return <GerenteHistorial openDetail={setDetailId} userId={userId}/>;
     if (page === "mis-solicitudes")  return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
-    if (page === "anticipos")        return <SolicitarAnticipo setPage={setPage}/>;
+    if (page === "anticipos")        return <SolicitarAnticipo setPage={setPage} userId={userId}/>;
     if (page === "reembolsos")       return <Reembolsos userId={userId}/>;
     if (page === "comprobaciones")   return <NuevaComprobacion setPage={setPage} userId={userId}/>;
     return <GerenteBandeja openDetail={setDetailId} userId={userId}/>;
@@ -8224,7 +8264,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     if (page === "historial")       return <GerenteHistorial openDetail={setDetailId} userId={userId}/>;
     // Admin operando como usuario
     if (page === "dash")            return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
-    if (page === "anticipos")       return <SolicitarAnticipo setPage={setPage}/>;
+    if (page === "anticipos")       return <SolicitarAnticipo setPage={setPage} userId={userId}/>;
     if (page === "comprobaciones")  return <NuevaComprobacion setPage={setPage}/>;
     if (page === "reembolsos")      return <Reembolsos userId={userId}/>;
     if (page === "mis-solicitudes") return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
