@@ -2991,7 +2991,7 @@ function CompUploader({ onAdd }) {
       reader.onload = (e) => {
         const parsed = parseCFDI(e.target.result);
         if (parsed) {
-          const item = { ...parsed, file };
+          const item = { ...parsed, id: parsed.uuidFull || (parsed.uuid + "-" + Date.now()) || ("item-" + Date.now()), file };
           setFiles(prev => [...prev, item]);
           if (onAdd) onAdd([item]);
         }
