@@ -3322,7 +3322,7 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
         <div>
           <div className="card" style={{marginBottom:14}}>
             <h3 className="card-title" style={{marginBottom:14}}>Sube tus comprobantes</h3>
-            <CompUploader onAdd={(newItems) => { setItems([...items, ...newItems]); showToast(`✓ ${newItems.length} archivo${newItems.length>1?"s":""} procesado${newItems.length>1?"s":""}`); }}/>
+            <CompUploader onAdd={(newItems) => { setItems(prev => [...prev, ...newItems]); showToast(`✓ ${newItems.length} archivo${newItems.length>1?"s":""} procesado${newItems.length>1?"s":""}`); }}/>
           </div>
 
           <div className="card">
