@@ -3168,12 +3168,14 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
   React.useEffect(() => {
     setLoading(true);
     (async () => {
+      console.log("NuevaComprobacion userId:", userId);
       if (window.sb) {
-        const { data } = await window.sb.from("solicitudes")
+        const { data, error } = await window.sb.from("solicitudes")
           .select("*")
           .eq("usuario_id", userId)
           .eq("tipo", "anticipo")
           .in("status", ["liberado","parcial"]);
+        console.log("Anticipos liberados para comprobar:", data, error);
         // Nota: filtramos saldo_pendiente > 0 en JS porque puede ser null en Supabase
         if (data && data.length > 0) {
           const mapped = data
@@ -3692,20 +3694,20 @@ function GerenteBandeja({ openDetail, userId, role }) {
     e.stopPropagation();
     setRechazoModal({ id, motivo: "" });
   };
-  const confirmarRechazo = () => {
+  const confirmarRechazo = async () => {
     if (!rechazoModal.motivo.trim()) return;
-    const s = window.SOLICITUDES.find(x => x.id === rechazoModal.id);
-    if (s) {
-      s.status = "rechazado";
-      s.motivoRechazo = rechazoModal.motivo.trim();
-      if (window.sb) {
-        window.sb.from("solicitudes").update({
-          status: "rechazado", motivo_rechazo: rechazoModal.motivo.trim()
-        }).eq("id", rechazoModal.id);
-      }
+    const sid = rechazoModal.id;
+    const motivo = rechazoModal.motivo.trim();
+    if (window.sb) {
+      const { error } = await window.sb.from("solicitudes").update({
+        status: "rechazado", motivo_rechazo: motivo, saldo_pendiente: 0
+      }).eq("id", sid);
+      if (error) { showToast("Error: " + error.message); return; }
     }
-    setItems(prev => prev.filter(x => x.id !== rechazoModal.id));
-    showToast(`Solicitud ${rechazoModal.id} rechazada`, "warn");
+    const s = window.SOLICITUDES.find(x => x.id === sid);
+    if (s) { s.status = "rechazado"; s.motivoRechazo = motivo; s.saldoPendiente = 0; }
+    setItems(prev => prev.filter(x => x.id !== sid));
+    showToast(`Solicitud ${sid} rechazada`, "warn");
     setRechazoModal(null);
   };
 
@@ -3960,12 +3962,13 @@ function TesoreriaBandeja({ openDetail }) {
         .eq("status", "autorizado")
         .order("fecha", { ascending: false });
       // Filtrar los que ya se liberaron localmente
-      const yaLiberados = new Set(
+      // Excluir los que ya se procesaron localmente (liberados, rechazados, etc.)
+      const yaProcessed = new Set(
         window.SOLICITUDES.filter(s => s.status !== "autorizado").map(s => s.id)
       );
       if (data) {
         const mapped = data
-          .filter(s => !yaLiberados.has(s.id))
+          .filter(s => !yaProcessed.has(s.id) && s.status === "autorizado")
           .map(s => ({
             id: s.id, tipo: s.tipo, concepto: s.concepto,
             usuario: s.usuario_id, monto: parseFloat(s.monto)||0,
@@ -4880,12 +4883,12 @@ function Deudores({ role, userId }) {
     porCentro[k]=(porCentro[k]||0)+s.monto;
   });
   const centroMax = Math.max(...Object.values(porCentro),1);
-  const totalGasto = solicsFilt.reduce((a,s)=>a+s.monto,0);
+  const totalGasto = solicsFilt.filter(s=>s.status!=="rechazado").reduce((a,s)=>a+s.monto,0);
 
   // ── Gasto mensual ───────────────────────────────────────────────────────
   const meses=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
   const gastoMensual=Array(12).fill(0);
-  solicsFilt.forEach(s=>{ gastoMensual[s.fecha.getMonth()]+=s.monto; });
+  solicsFilt.filter(s=>s.status!=="rechazado").forEach(s=>{ gastoMensual[s.fecha.getMonth()]+=s.monto; });
   const mesMax=Math.max(...gastoMensual,1);
   const BAR_H=160;
 
@@ -5171,7 +5174,7 @@ function Reportes({ role, userId }) {
 
   const totalGasto    = solicsFilt.filter(s=>s.status!=="rechazado").reduce((a,s)=>a+s.monto,0);
   const totalLiberado = solicsFilt.filter(s=>["liberado","comprobado"].includes(s.status)).reduce((a,s)=>a+s.monto,0);
-  const totalDeudor   = solicsFilt.filter(s=>s.tipo==="anticipo"&&(s.saldoPendiente||0)>0).reduce((a,s)=>a+(s.saldoPendiente||0),0);
+  const totalDeudor   = solicsFilt.filter(s=>s.tipo==="anticipo"&&["liberado","parcial"].includes(s.status)&&(s.saldoPendiente||0)>0).reduce((a,s)=>a+(s.saldoPendiente||0),0);
   const totalPend     = solicsFilt.filter(s=>["solicitado","autorizado"].includes(s.status)).reduce((a,s)=>a+s.monto,0);
   const compRate      = totalGasto>0 ? Math.round((totalGasto-totalDeudor)/totalGasto*100) : 100;
   const avgTicket     = solicsFilt.length>0 ? Math.round(totalGasto/solicsFilt.length) : 0;
@@ -7996,7 +7999,7 @@ function MReportes({ role, userId }) {
     return true;
   });
 
-  const totalGasto = data.reduce((a,s) => a + s.monto, 0);
+  const totalGasto = data.filter(s=>s.status!=="rechazado").reduce((a,s) => a + s.monto, 0);
   const totalDeudor = data.filter(s => s.tipo === "anticipo" && (s.saldoPendiente||0) > 0).reduce((a,s) => a + (s.saldoPendiente||0), 0);
   const totalPend = data.filter(s => ["solicitado","autorizado"].includes(s.status)).reduce((a,s) => a + s.monto, 0);
   const compRate = totalGasto > 0 ? Math.round((totalGasto - totalDeudor) / totalGasto * 100) : 100;
@@ -8630,7 +8633,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
   if (role === "usuario") {
     if (page === "dash")           return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
     if (page === "anticipos")      return <SolicitarAnticipo setPage={setPage} userId={userId}/>;
-    if (page === "comprobaciones") return <NuevaComprobacion setPage={setPage}/>;
+    if (page === "comprobaciones") return <NuevaComprobacion setPage={setPage} userId={userId}/>;
     if (page === "reembolsos")     return <Reembolsos userId={userId} setPage={setPage}/>;
     // fallback
     return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
@@ -8675,7 +8678,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     // Admin operando como usuario
     if (page === "dash")            return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
     if (page === "anticipos")       return <SolicitarAnticipo setPage={setPage} userId={userId}/>;
-    if (page === "comprobaciones")  return <NuevaComprobacion setPage={setPage}/>;
+    if (page === "comprobaciones")  return <NuevaComprobacion setPage={setPage} userId={userId}/>;
     if (page === "reembolsos")      return <Reembolsos userId={userId} setPage={setPage}/>;
     if (page === "nuevo-reembolso") return <NuevoReembolso setPage={setPage} userId={userId}/>;
     if (page === "mis-solicitudes") return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
