@@ -3264,11 +3264,59 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
   const delItem = (id) => setItems(items.filter(i => i.id !== id));
   const total = items.reduce((a,i) => a + i.total, 0);
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
-  const handleEnviar = () => {
+  const handleEnviar = async () => {
     if (enviado) return;
     if (items.length === 0) { showToast("⚠ Agrega al menos un comprobante antes de enviar"); return; }
     const totalComp = items.reduce((a, i) => a + (i.total || 0), 0);
+    const saldoActual = anticipoSel ? (anticipoSel.saldoPendiente || anticipoSel.monto) : 0;
+
+    // Validar que no exceda el saldo disponible
+    if (anticipoSel && totalComp > saldoActual + 0.01) {
+      showToast(`⚠ El total ($${totalComp.toFixed(2)}) excede el saldo disponible ($${saldoActual.toFixed(2)})`);
+      return;
+    }
+
     const id = "CMP-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-4);
+    const nuevoSaldo = anticipoSel ? Math.max(0, saldoActual - totalComp) : 0;
+    const nuevoStatus = nuevoSaldo <= 0 ? "comprobado" : "parcial";
+
+    // Persistir comprobación en Supabase
+    if (window.sb) {
+      const { error } = await window.sb.from("solicitudes").insert({
+        id, tipo: "comprobacion",
+        concepto: "Comprobación " + (anticipoSel ? anticipoSel.id : ""),
+        usuario_id: userId, monto: totalComp,
+        status: "solicitado",
+        anticipo_ref: anticipoSel ? anticipoSel.id : null,
+        comprobantes: items.length,
+        saldo_pendiente: 0,
+        fecha: new Date().toISOString(),
+      });
+      if (error) { showToast("⚠ Error al enviar: " + error.message); return; }
+
+      // Guardar CFDIs
+      if (items.length > 0) {
+        await window.sb.from("comprobantes_cfdi").insert(
+          items.map(it => ({
+            solicitud_id: id,
+            uuid: it.uuidFull || it.uuid || ("SIN-UUID-" + Date.now()),
+            emisor: it.emisor, concepto: it.concepto,
+            subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
+            cuenta: it.cuenta, confianza: it.confianza||0.9,
+          }))
+        );
+      }
+
+      // Actualizar saldo del anticipo padre en Supabase
+      if (anticipoSel) {
+        await window.sb.from("solicitudes").update({
+          saldo_pendiente: nuevoSaldo,
+          status: nuevoStatus,
+        }).eq("id", anticipoSel.id);
+      }
+    }
+
+    // Actualizar en memoria local
     const nueva = {
       id, tipo: "comprobacion",
       concepto: "Comprobación " + (anticipoSel ? anticipoSel.id : ""),
@@ -3277,17 +3325,31 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
       comprobantes: items.length, cfdi: items, saldoPendiente: 0,
     };
     window.SOLICITUDES.unshift(nueva);
+
     if (anticipoSel) {
       const ant = window.SOLICITUDES.find(s => s.id === anticipoSel.id);
       if (ant) {
-        ant.saldoPendiente = Math.max(0, (ant.saldoPendiente||0) - totalComp);
-        ant.status = ant.saldoPendiente <= 0 ? "comprobado" : "parcial";
-        if (window.calcSaldo) window.calcSaldo(anticipoSel.id);
+        ant.saldoPendiente = nuevoSaldo;
+        ant.status = nuevoStatus;
+      }
+      // Si queda saldo: actualizar pendientes con nuevo saldo; si no: remover
+      if (nuevoSaldo > 0) {
+        setPendientes(prev => prev.map(p =>
+          p.id === anticipoSel.id ? {...p, saldoPendiente: nuevoSaldo, status: "parcial"} : p
+        ));
+        // Volver a la selección de anticipo para seguir comprobando
+        setAnticipoSel(null);
+        setItems([]);
+        setEnviado(false);
+        showToast("✓ Comprobación " + id + " enviada · Saldo restante: $" + nuevoSaldo.toFixed(2));
+        return;
+      } else {
+        setPendientes(prev => prev.filter(p => p.id !== anticipoSel.id));
       }
     }
-    setPendientes(prev => prev.filter(p => p.id !== (anticipoSel && anticipoSel.id)));
+
     setEnviado(true);
-    showToast("✓ Comprobación " + id + " enviada a autorización");
+    showToast("✓ Comprobación " + id + " enviada · Anticipo comprobado al 100%");
     setTimeout(() => setPage && setPage("dash"), 1400);
   };
   const handleBorrador = () => {
@@ -3677,9 +3739,13 @@ function GerenteBandeja({ openDetail, userId, role }) {
     if (window.sb) {
       const updateRow = { status: "autorizado" };
       if (s.tipo === "anticipo") updateRow.saldo_pendiente = s.monto;
-      const { error } = await window.sb.from("solicitudes")
-        .update(updateRow).eq("id", id);
+      const { error, data } = await window.sb.from("solicitudes")
+        .update(updateRow).eq("id", id).select();
+      console.log("aprobar result:", data, error);
       if (error) { showToast("Error al autorizar: " + error.message); return; }
+      if (!data || data.length === 0) {
+        showToast("⚠ Sin permisos para autorizar esta solicitud (RLS)"); return;
+      }
     }
     s.status = "autorizado";
     if (s.tipo === "anticipo") s.saldoPendiente = s.saldoPendiente || s.monto;
