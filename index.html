@@ -1372,6 +1372,7 @@ async function loadSolicitudes() {
         saldoPendiente: saldoCalc,
         anticipoRef:    s.anticipo_ref || null,
         motivoRechazo:  s.motivo_rechazo || null,
+        updatedAt:      s.updated_at ? new Date(s.updated_at) : null,
         comprobantes:   s.comprobantes || 0,
         destino:        s.destino || null,
         notas:          s.notas || null,
@@ -3828,14 +3829,18 @@ function GerenteBandeja({ openDetail, userId, role }) {
         <div className="kpi">
           <div className="kpi-label">Tiempo prom. respuesta</div>
           <div className="kpi-value">{(()=>{
-            const hoy = window.HOY || new Date();
+            // Usar updated_at si está disponible, si no mostrar — (no tenemos timestamp de respuesta)
             const respondidas = window.SOLICITUDES.filter(s =>
-              teamIds ? teamIds.includes(s.usuario) : true
-            ).filter(s => ["autorizado","rechazado"].includes(s.status) && s.fecha);
+              (teamIds ? teamIds.includes(s.usuario) : true) &&
+              ["autorizado","rechazado"].includes(s.status) &&
+              s.fecha && s.updatedAt
+            );
             if (!respondidas.length) return "—";
-            const avg = respondidas.reduce((a,s) =>
-              a + Math.abs((hoy - (s.fecha instanceof Date ? s.fecha : new Date(s.fecha))) / 3600000)
-            , 0) / respondidas.length;
+            const avg = respondidas.reduce((a,s) => {
+              const created = s.fecha instanceof Date ? s.fecha : new Date(s.fecha);
+              const updated = s.updatedAt instanceof Date ? s.updatedAt : new Date(s.updatedAt);
+              return a + Math.abs((updated - created) / 3600000);
+            }, 0) / respondidas.length;
             return avg < 1 ? Math.round(avg*60)+" min" : avg.toFixed(1)+" h";
           })()}</div>
           <div className="kpi-delta up">SLA: 24 h</div>
@@ -6575,7 +6580,7 @@ function GerenteEquipo({ userId }) {
           {equipo.map(u => {
             const c = window.findCentro(u.centro);
             const sols = getMisSolicitudes(u.id);
-            const saldo = sols.filter(s=>s.tipo==="anticipo"&&(s.saldoPendiente||0)>0)
+            const saldo = sols.filter(s=>s.tipo==="anticipo"&&["liberado","parcial"].includes(s.status)&&(s.saldoPendiente||0)>0)
               .reduce((a,s)=>a+(s.saldoPendiente||0),0);
             const pendientes = sols.filter(s=>s.status==="solicitado").length;
             return (
