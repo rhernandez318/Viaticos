@@ -8638,6 +8638,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     if (page === "anticipos")      return <SolicitarAnticipo setPage={setPage} userId={userId}/>;
     if (page === "comprobaciones") return <NuevaComprobacion setPage={setPage} userId={userId}/>;
     if (page === "reembolsos")     return <Reembolsos userId={userId} setPage={setPage}/>;
+    if (page === "nuevo-reembolso") return <NuevoReembolso setPage={setPage} userId={userId}/>;
     // fallback
     return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
   }
