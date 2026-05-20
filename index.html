@@ -3163,19 +3163,19 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
   const [anticipoSel, setAnticipoSel] = React.useState(null);
   const [items, setItems] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
+  const [editId, setEditId]   = React.useState(null);
+  const [toast, setToast]     = React.useState(null);
 
   // Recargar desde Supabase al montar — garantiza datos frescos
   React.useEffect(() => {
     setLoading(true);
     (async () => {
-      console.log("NuevaComprobacion userId:", userId);
       if (window.sb) {
-        const { data, error } = await window.sb.from("solicitudes")
+        const { data } = await window.sb.from("solicitudes")
           .select("*")
           .eq("usuario_id", userId)
           .eq("tipo", "anticipo")
           .in("status", ["liberado","parcial"]);
-        console.log("Anticipos liberados para comprobar:", data, error);
         // Nota: filtramos saldo_pendiente > 0 en JS porque puede ser null en Supabase
         if (data && data.length > 0) {
           const mapped = data
@@ -3203,9 +3203,6 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
       setLoading(false);
     })();
   }, [userId]);
-
-  const [editId, setEditId] = React.useState(null);
-  const [toast, setToast] = React.useState(null);
 
   if (!anticipoSel) {
     return (
