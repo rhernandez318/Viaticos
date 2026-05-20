@@ -3604,7 +3604,15 @@ function GerenteBandeja({ openDetail, userId, role }) {
   const confirmarRechazo = () => {
     if (!rechazoModal.motivo.trim()) return;
     const s = window.SOLICITUDES.find(x => x.id === rechazoModal.id);
-    if (s) { s.status = "rechazado"; s.motivoRechazo = rechazoModal.motivo.trim(); }
+    if (s) {
+      s.status = "rechazado";
+      s.motivoRechazo = rechazoModal.motivo.trim();
+      if (window.sb) {
+        window.sb.from("solicitudes").update({
+          status: "rechazado", motivo_rechazo: rechazoModal.motivo.trim()
+        }).eq("id", rechazoModal.id);
+      }
+    }
     setItems(prev => prev.filter(x => x.id !== rechazoModal.id));
     showToast(`Solicitud ${rechazoModal.id} rechazada`, "warn");
     setRechazoModal(null);
@@ -3869,14 +3877,26 @@ function TesoreriaBandeja({ openDetail }) {
           }
         }
       } else if (s.tipo === "reembolso") {
-        // Reembolso liberado = liberado (ya se pagó, no hay anticipo que cerrar)
         s.status = "liberado";
       } else if (s.tipo === "anticipo") {
-        // Anticipo liberado = fondos dispersados al empleado
         s.status = "liberado";
         s.saldoPendiente = s.monto;
       } else {
         s.status = "liberado";
+      }
+      // Persistir en Supabase
+      if (window.sb) {
+        const updateData = { status: s.status };
+        if (s.tipo === "anticipo") updateData.saldo_pendiente = s.monto;
+        if (s.tipo === "comprobacion") updateData.saldo_pendiente = 0;
+        window.sb.from("solicitudes").update(updateData).eq("id", id);
+        // Si es comprobacion, actualizar anticipo padre también
+        if (s.tipo === "comprobacion" && s.anticipoRef) {
+          const ant = window.SOLICITUDES.find(x => x.id === s.anticipoRef);
+          if (ant) window.sb.from("solicitudes").update({
+            status: ant.status, saldo_pendiente: ant.saldoPendiente
+          }).eq("id", s.anticipoRef);
+        }
       }
     });
     setItems(items.filter(i => !idsArr.includes(i.id)));
@@ -8461,6 +8481,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     if (page === "mis-solicitudes")  return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
     if (page === "anticipos")        return <SolicitarAnticipo setPage={setPage} userId={userId}/>;
     if (page === "reembolsos")       return <Reembolsos userId={userId} setPage={setPage}/>;
+    if (page === "nuevo-reembolso")  return <NuevoReembolso setPage={setPage} userId={userId}/>;
     if (page === "comprobaciones")   return <NuevaComprobacion setPage={setPage} userId={userId}/>;
     return <GerenteBandeja openDetail={setDetailId} userId={userId} role={role}/>;
   }
