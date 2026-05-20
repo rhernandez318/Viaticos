@@ -3165,6 +3165,7 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
   const [loading, setLoading] = React.useState(false);
   const [editId, setEditId]   = React.useState(null);
   const [toast, setToast]     = React.useState(null);
+  const [enviado, setEnviado] = React.useState(false);
 
   // Recargar desde Supabase al montar — garantiza datos frescos
   React.useEffect(() => {
@@ -3262,7 +3263,6 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
   const delItem = (id) => setItems(items.filter(i => i.id !== id));
   const total = items.reduce((a,i) => a + i.total, 0);
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
-  const [enviado, setEnviado] = React.useState(false);
   const handleEnviar = () => {
     if (enviado) return;
     if (items.length === 0) { showToast("⚠ Agrega al menos un comprobante antes de enviar"); return; }
@@ -5174,7 +5174,8 @@ function Reportes({ role, userId }) {
   const totalDeudor   = solicsFilt.filter(s=>s.tipo==="anticipo"&&["liberado","parcial"].includes(s.status)&&(s.saldoPendiente||0)>0).reduce((a,s)=>a+(s.saldoPendiente||0),0);
   const totalPend     = solicsFilt.filter(s=>["solicitado","autorizado"].includes(s.status)).reduce((a,s)=>a+s.monto,0);
   const compRate      = totalGasto>0 ? Math.round((totalGasto-totalDeudor)/totalGasto*100) : 100;
-  const avgTicket     = solicsFilt.length>0 ? Math.round(totalGasto/solicsFilt.length) : 0;
+  const solicsValidas = solicsFilt.filter(s=>s.status!=="rechazado");
+  const avgTicket     = solicsValidas.length>0 ? Math.round(totalGasto/solicsValidas.length) : 0;
 
   // Por cuenta contable (tipo de gasto)
   const porTipoGasto = {};
