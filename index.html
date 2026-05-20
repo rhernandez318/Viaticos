@@ -1350,6 +1350,11 @@ async function loadSolicitudes() {
 
     SOLICITUDES.length = 0;
     (data || []).forEach(s => {
+      // Fallback: si saldo_pendiente es null en Supabase y el anticipo está activo → usar monto
+      const saldoCalc = (s.saldo_pendiente !== null && s.saldo_pendiente !== undefined)
+        ? parseFloat(s.saldo_pendiente) || 0
+        : (s.tipo === "anticipo" && ["autorizado","liberado","parcial"].includes(s.status)
+            ? parseFloat(s.monto) || 0 : 0);
       SOLICITUDES.push({
         id:             s.id,
         tipo:           s.tipo,
@@ -1358,7 +1363,7 @@ async function loadSolicitudes() {
         monto:          parseFloat(s.monto) || 0,
         fecha:          new Date(s.fecha),
         status:         s.status,
-        saldoPendiente: parseFloat(s.saldo_pendiente) || 0,
+        saldoPendiente: saldoCalc,
         anticipoRef:    s.anticipo_ref || null,
         motivoRechazo:  s.motivo_rechazo || null,
         comprobantes:   s.comprobantes || 0,
@@ -3158,15 +3163,18 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
           .select("*")
           .eq("usuario_id", userId)
           .eq("tipo", "anticipo")
-          .in("status", ["autorizado","liberado","parcial"])
-          .gt("saldo_pendiente", 0);
+          .in("status", ["autorizado","liberado","parcial"]);
+        // Nota: filtramos saldo_pendiente > 0 en JS porque puede ser null en Supabase
         if (data && data.length > 0) {
-          const mapped = data.map(s => ({
-            id: s.id, tipo: s.tipo, concepto: s.concepto,
-            usuario: s.usuario_id, monto: parseFloat(s.monto)||0,
-            fecha: new Date(s.fecha), status: s.status,
-            saldoPendiente: parseFloat(s.saldo_pendiente)||0,
-          }));
+          const mapped = data
+            .filter(s => (parseFloat(s.saldo_pendiente)||parseFloat(s.monto)||0) > 0)
+            .map(s => ({
+              id: s.id, tipo: s.tipo, concepto: s.concepto,
+              usuario: s.usuario_id, monto: parseFloat(s.monto)||0,
+              fecha: new Date(s.fecha), status: s.status,
+              // Si saldo_pendiente es null usar monto completo
+              saldoPendiente: parseFloat(s.saldo_pendiente) || parseFloat(s.monto) || 0,
+            }));
           // Merge with SOLICITUDES
           mapped.forEach(m => {
             const idx = window.SOLICITUDES.findIndex(x => x.id === m.id);
@@ -3652,10 +3660,19 @@ function GerenteBandeja({ openDetail, userId, role }) {
   };
 
   // ── Aprobar ────────────────────────────────────────────────────────────
-  const aprobar = (id, e) => {
+  const aprobar = async (id, e) => {
     e.stopPropagation();
     const s = window.SOLICITUDES.find(x => x.id === id);
-    if (s) s.status = "autorizado";
+    if (!s) return;
+    if (window.sb) {
+      const updateRow = { status: "autorizado" };
+      if (s.tipo === "anticipo") updateRow.saldo_pendiente = s.monto;
+      const { error } = await window.sb.from("solicitudes")
+        .update(updateRow).eq("id", id);
+      if (error) { showToast("Error al autorizar: " + error.message); return; }
+    }
+    s.status = "autorizado";
+    if (s.tipo === "anticipo") s.saldoPendiente = s.saldoPendiente || s.monto;
     setItems(prev => prev.filter(x => x.id !== id));
     showToast(`✓ ${id} autorizado y enviado a Tesorería`);
   };
@@ -3979,7 +3996,9 @@ function TesoreriaBandeja({ openDetail }) {
       // Persistir en Supabase
       if (window.sb) {
         const updateData = { status: s.status };
-        if (s.tipo === "anticipo") updateData.saldo_pendiente = s.monto;
+        if (s.tipo === "anticipo") {
+          updateData.saldo_pendiente = s.saldoPendiente || s.monto;
+        }
         if (s.tipo === "comprobacion") updateData.saldo_pendiente = 0;
         window.sb.from("solicitudes").update(updateData).eq("id", id);
         // Si es comprobacion, actualizar anticipo padre también
