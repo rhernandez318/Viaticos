@@ -2173,10 +2173,10 @@ const ROLE_USERS = {
   contador: "C001",
 };
 
-function Sidebar({ role, page, setPage, onLogout, userId: sidUserId }) {
+function Sidebar({ role, page, setPage, onLogout, userId: sidUserId, dbLoaded }) {
   const u = window.findUser(sidUserId) || { iniciales:"?", nombre:"Usuario", correo:"", rol: role };
 
-  // Calcular badges en tiempo real
+  // Calcular badges en tiempo real — re-evalúa cuando dbLoaded cambia
   const liveBadge = (id) => {
     if (id === "bandeja") {
       const teamIds = sidUserId
@@ -3139,9 +3139,53 @@ function CompUploader({ onAdd }) {
 }
 
 function NuevaComprobacion({ setPage, userId = "U001" }) {
-  const [pendientes, setPendientes] = React.useState(() => window.SOLICITUDES.filter(s => s.tipo === "anticipo" && s.usuario === userId && ["autorizado","liberado","parcial"].includes(s.status) && (s.saldoPendiente||0) > 0));
+  const getPendientes = () => window.SOLICITUDES.filter(s =>
+    s.tipo === "anticipo" && s.usuario === userId &&
+    ["autorizado","liberado","parcial"].includes(s.status) &&
+    (s.saldoPendiente||0) > 0
+  );
+  const [pendientes, setPendientes] = React.useState(getPendientes);
   const [anticipoSel, setAnticipoSel] = React.useState(null);
-  const [items, setItems] = React.useState(window.COMPROBANTES_DEMO);
+  const [items, setItems] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+
+  // Recargar desde Supabase al montar — garantiza datos frescos
+  React.useEffect(() => {
+    setLoading(true);
+    (async () => {
+      if (window.sb) {
+        const { data } = await window.sb.from("solicitudes")
+          .select("*")
+          .eq("usuario_id", userId)
+          .eq("tipo", "anticipo")
+          .in("status", ["autorizado","liberado","parcial"])
+          .gt("saldo_pendiente", 0);
+        if (data && data.length > 0) {
+          const mapped = data.map(s => ({
+            id: s.id, tipo: s.tipo, concepto: s.concepto,
+            usuario: s.usuario_id, monto: parseFloat(s.monto)||0,
+            fecha: new Date(s.fecha), status: s.status,
+            saldoPendiente: parseFloat(s.saldo_pendiente)||0,
+          }));
+          // Merge with SOLICITUDES
+          mapped.forEach(m => {
+            const idx = window.SOLICITUDES.findIndex(x => x.id === m.id);
+            if (idx >= 0) Object.assign(window.SOLICITUDES[idx], m);
+            else window.SOLICITUDES.unshift(m);
+          });
+          setPendientes(mapped);
+        } else {
+          setPendientes(getPendientes());
+        }
+      } else {
+        setPendientes(getPendientes());
+      }
+      setLoading(false);
+    })();
+  }, [userId]);
+
+  const [toast, setToast] = React.useState(null);
+  const [editId, setEditId] = React.useState(null);
   const [editId, setEditId] = React.useState(null);
   const [toast, setToast] = React.useState(null);
 
@@ -3877,9 +3921,37 @@ function GerenteBandeja({ openDetail, userId, role }) {
 }
 
 function TesoreriaBandeja({ openDetail }) {
-  const [items, setItems] = React.useState(() => window.SOLICITUDES.filter(s => s.status === "autorizado"));
-  const [selected, setSelected] = React.useState(() => new Set(window.SOLICITUDES.filter(s => s.status === "autorizado").map(s => s.id)));
+  const getAutorizados = () => window.SOLICITUDES.filter(s => s.status === "autorizado");
+  const [items, setItems] = React.useState(getAutorizados);
+  const [selected, setSelected] = React.useState(() => new Set(getAutorizados().map(s => s.id)));
   const [toast, setToast] = React.useState(null);
+
+  // Recargar desde Supabase al montar
+  React.useEffect(() => {
+    (async () => {
+      if (!window.sb) return;
+      const { data } = await window.sb.from("solicitudes")
+        .select("*, items:solicitud_items(*)")
+        .eq("status", "autorizado")
+        .order("fecha", { ascending: false });
+      if (data) {
+        const mapped = data.map(s => ({
+          id: s.id, tipo: s.tipo, concepto: s.concepto,
+          usuario: s.usuario_id, monto: parseFloat(s.monto)||0,
+          fecha: new Date(s.fecha), status: s.status,
+          saldoPendiente: parseFloat(s.saldo_pendiente)||0,
+        }));
+        // Update SOLICITUDES
+        mapped.forEach(m => {
+          const idx = window.SOLICITUDES.findIndex(x => x.id === m.id);
+          if (idx >= 0) Object.assign(window.SOLICITUDES[idx], m);
+          else window.SOLICITUDES.unshift(m);
+        });
+        setItems(mapped);
+        setSelected(new Set(mapped.map(s => s.id)));
+      }
+    })();
+  }, []);
 
   const liberar = (ids) => {
     const idsArr = Array.isArray(ids) ? ids : [ids];
@@ -9201,7 +9273,7 @@ function App() {
         <MobileApp userId={userId} role={activeRole} onLogout={handleLogout} setPage={setPageFromMobile} openDetail={setDetailId}/>
       ) : (
         <div className="app">
-          <Sidebar role={activeRole} page={activePage} setPage={setPage} onLogout={handleLogout} userId={userId}/>
+          <Sidebar role={activeRole} page={activePage} setPage={setPage} onLogout={handleLogout} userId={userId} dbLoaded={dbLoaded}/>
           <div className="main">
             <Topbar role={activeRole} setRole={handleSetRole} crumbs={crumbs} isAdmin={isAdmin}
               userId={userId}
