@@ -3949,13 +3949,19 @@ function TesoreriaBandeja({ openDetail }) {
         .select("*, items:solicitud_items(*)")
         .eq("status", "autorizado")
         .order("fecha", { ascending: false });
+      // Filtrar los que ya se liberaron localmente
+      const yaLiberados = new Set(
+        window.SOLICITUDES.filter(s => s.status !== "autorizado").map(s => s.id)
+      );
       if (data) {
-        const mapped = data.map(s => ({
-          id: s.id, tipo: s.tipo, concepto: s.concepto,
-          usuario: s.usuario_id, monto: parseFloat(s.monto)||0,
-          fecha: new Date(s.fecha), status: s.status,
-          saldoPendiente: parseFloat(s.saldo_pendiente)||0,
-        }));
+        const mapped = data
+          .filter(s => !yaLiberados.has(s.id))
+          .map(s => ({
+            id: s.id, tipo: s.tipo, concepto: s.concepto,
+            usuario: s.usuario_id, monto: parseFloat(s.monto)||0,
+            fecha: new Date(s.fecha), status: s.status,
+            saldoPendiente: parseFloat(s.saldo_pendiente)||parseFloat(s.monto)||0,
+          }));
         // Update SOLICITUDES
         mapped.forEach(m => {
           const idx = window.SOLICITUDES.findIndex(x => x.id === m.id);
@@ -3968,9 +3974,9 @@ function TesoreriaBandeja({ openDetail }) {
     })();
   }, []);
 
-  const liberar = (ids) => {
+  const liberar = async (ids) => {
     const idsArr = Array.isArray(ids) ? ids : [ids];
-    idsArr.forEach(id => {
+    for (const id of idsArr) {
       const s = window.SOLICITUDES.find(x => x.id === id);
       if (!s) return;
 
@@ -4000,17 +4006,43 @@ function TesoreriaBandeja({ openDetail }) {
           updateData.saldo_pendiente = s.saldoPendiente || s.monto;
         }
         if (s.tipo === "comprobacion") updateData.saldo_pendiente = 0;
-        window.sb.from("solicitudes").update(updateData).eq("id", id);
+        await window.sb.from("solicitudes").update(updateData).eq("id", id);
         // Si es comprobacion, actualizar anticipo padre también
         if (s.tipo === "comprobacion" && s.anticipoRef) {
           const ant = window.SOLICITUDES.find(x => x.id === s.anticipoRef);
-          if (ant) window.sb.from("solicitudes").update({
+          if (ant) await window.sb.from("solicitudes").update({
             status: ant.status, saldo_pendiente: ant.saldoPendiente
           }).eq("id", s.anticipoRef);
         }
       }
+    }
+    // Actualizar estado local de items liberados en window.SOLICITUDES
+    idsArr.forEach(id => {
+      const sol = window.SOLICITUDES.find(x => x.id === id);
+      if (sol && sol.status === "autorizado") sol.status = "liberado";
     });
-    setItems(items.filter(i => !idsArr.includes(i.id)));
+    // Recargar desde Supabase para sincronía
+    if (window.sb) {
+      window.sb.from("solicitudes").select("*").eq("status","autorizado")
+        .order("fecha",{ascending:false})
+        .then(({data}) => {
+          if (!data) return;
+          const mapped = data.map(s=>({
+            id:s.id, tipo:s.tipo, concepto:s.concepto, usuario:s.usuario_id,
+            monto:parseFloat(s.monto)||0, fecha:new Date(s.fecha), status:s.status,
+            saldoPendiente:parseFloat(s.saldo_pendiente)||0,
+          }));
+          mapped.forEach(m=>{
+            const ix=window.SOLICITUDES.findIndex(x=>x.id===m.id);
+            if(ix>=0) Object.assign(window.SOLICITUDES[ix],m);
+            else window.SOLICITUDES.unshift(m);
+          });
+          setItems(mapped);
+          setSelected(new Set(mapped.map(s=>s.id)));
+        });
+    } else {
+      setItems(prev => prev.filter(i => !idsArr.includes(i.id)));
+    }
     const newSel = new Set(selected);
     idsArr.forEach(id => newSel.delete(id));
     setSelected(newSel);
@@ -4090,8 +4122,18 @@ function TesoreriaBandeja({ openDetail }) {
       <div className="kpi-grid">
         <div className="kpi"><div className="kpi-label">Por liberar</div><div className="kpi-value">{items.length}</div><div className="kpi-delta neutral">solicitudes</div></div>
         <div className="kpi"><div className="kpi-label">Monto total</div><div className="kpi-value">{window.fmtMXN(items.reduce((a,s)=>a+s.monto,0))}</div><div className="kpi-delta up">listo para SPEI</div></div>
-        <div className="kpi"><div className="kpi-label">Liberado hoy</div><div className="kpi-value">{window.fmtMXN(window.SOLICITUDES.filter(s=>{const d=new Date();const f=s.fecha instanceof Date?s.fecha:new Date(s.fecha);return s.status==="liberado"&&f.toDateString()===d.toDateString();}).reduce((a,s)=>a+s.monto,0))}</div><div className="kpi-delta up">{window.SOLICITUDES.filter(s=>{const d=new Date();const f=s.fecha instanceof Date?s.fecha:new Date(s.fecha);return s.status==="liberado"&&f.toDateString()===d.toDateString();}).length} transferencias hoy</div></div>
-        <div className="kpi"><div className="kpi-label">Saldos abiertos</div><div className="kpi-value">{window.fmtMXN(window.SOLICITUDES.filter(s=>s.tipo==="anticipo"&&(s.saldoPendiente||0)>0).reduce((a,s)=>a+(s.saldoPendiente||0),0))}</div><div className="kpi-delta down">{window.SOLICITUDES.filter(s=>s.tipo==="anticipo"&&(s.saldoPendiente||0)>0).length} anticipo(s) sin comprobar</div></div>
+        <div className="kpi"><div className="kpi-label">Liberado hoy</div>{(()=>{
+  const hoy=new Date().toDateString();
+  const liberadosHoy=window.SOLICITUDES.filter(s=>{
+    const f=s.fecha instanceof Date?s.fecha:new Date(s.fecha);
+    return ["liberado","comprobado"].includes(s.status)&&f.toDateString()===hoy;
+  });
+  return <>
+    <div className="kpi-value">{window.fmtMXN(liberadosHoy.reduce((a,s)=>a+s.monto,0))}</div>
+    <div className="kpi-delta up">{liberadosHoy.length} transferencias hoy</div>
+  </>;
+})()}</div>
+        <div className="kpi"><div className="kpi-label">Saldos abiertos</div><div className="kpi-value">{window.fmtMXN(window.SOLICITUDES.filter(s=>s.tipo==="anticipo"&&["liberado","parcial"].includes(s.status)&&(s.saldoPendiente||0)>0).reduce((a,s)=>a+(s.saldoPendiente||0),0))}</div><div className="kpi-delta down">{window.SOLICITUDES.filter(s=>s.tipo==="anticipo"&&["liberado","parcial"].includes(s.status)&&(s.saldoPendiente||0)>0).length} anticipo(s) sin comprobar</div></div>
       </div>
 
       {/* Filter bar */}
