@@ -4878,7 +4878,7 @@ function Deudores({ role, userId }) {
 
   // ── Por área ────────────────────────────────────────────────────────────
   const porCentro = {};
-  solicsFilt.forEach(s => {
+  solicsFilt.filter(s=>s.status!=="rechazado").forEach(s => {
     const u=window.findUser(s.usuario); if(!u)return;
     const c=window.findCentro(u.centro);
     const k=c?c.nombre:u.centro;
@@ -5184,7 +5184,7 @@ function Reportes({ role, userId }) {
 
   // Por cuenta contable (tipo de gasto)
   const porTipoGasto = {};
-  solicsFilt.forEach(s => {
+  solicsFilt.filter(s=>s.status!=="rechazado").forEach(s => {
     const items = s.cfdi&&s.cfdi.length>0 ? s.cfdi
       : s.items&&s.items.length>0 ? s.items.map(i=>({cuenta:i.cuenta,total:i.monto||0}))
       : [{cuenta:"6121200001",total:s.monto}];
@@ -5199,7 +5199,7 @@ function Reportes({ role, userId }) {
 
   // Por centro de beneficio
   const porCentro = {};
-  solicsFilt.forEach(s => {
+  solicsFilt.filter(s=>s.status!=="rechazado").forEach(s => {
     const u=window.findUser(s.usuario);if(!u)return;
     const c=window.findCentro(u.centro);
     const k=c?c.nombre:u.centro;
@@ -5469,7 +5469,7 @@ function Reportes({ role, userId }) {
               <th className="right">Monto</th><th className="right">Avg</th></tr></thead>
             <tbody>
               {["anticipo","comprobacion","reembolso"].map(tipo=>{
-                const rows=solicsFilt.filter(s=>s.tipo===tipo);
+                const rows=solicsFilt.filter(s=>s.tipo===tipo&&s.status!=="rechazado");
                 const monto=rows.reduce((a,s)=>a+s.monto,0);
                 const labels={anticipo:"Anticipos",comprobacion:"Comprobaciones",reembolso:"Reembolsos"};
                 const colors={anticipo:"#378ADD",comprobacion:"#c5f24d",reembolso:"#9b59b6"};
