@@ -6954,15 +6954,43 @@ function MobileScan({ userId, onDone }) {
     e.target.value = "";
   };
 
-  const enviarReembolso = () => {
+  const enviarReembolso = async () => {
     if (!facturas.length) { showToast("Sube al menos una factura"); return; }
     const total = facturas.reduce((a,f)=>a+(f.total||0),0);
-    const id = "REE-" + Date.now().toString().slice(-6);
+    const id = "REM-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-4);
+    const conceptoFinal = concepto.trim() || facturas.map(f=>f.emisor).filter(Boolean).join(", ").slice(0,80);
+    const u = window.findUser(userId);
+
+    // Persistir en Supabase
+    if (window.sb) {
+      const { error } = await window.sb.from("solicitudes").insert({
+        id, tipo:"reembolso", concepto: conceptoFinal,
+        usuario_id: userId, monto: total,
+        status:"solicitado", saldo_pendiente: 0,
+        centro_id: u && u.centro ? u.centro : null,
+        comprobantes: facturas.length,
+        fecha: new Date().toISOString(),
+      });
+      if (error) { showToast("⚠ Error: " + error.message); return; }
+      if (facturas.length > 0) {
+        await window.sb.from("comprobantes_cfdi").insert(
+          facturas.map(it=>({
+            solicitud_id: id,
+            uuid: it.uuidFull || it.uuid || ("SIN-UUID-"+Date.now()),
+            emisor: it.emisor, concepto: it.concepto,
+            subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
+            cuenta: it.cuenta, confianza: it.confianza||0.9,
+          }))
+        );
+      }
+    }
+
     window.SOLICITUDES.unshift({
       id, tipo:"reembolso",
-      concepto: concepto.trim() || facturas.map(f=>f.emisor).filter(Boolean).join(", ").slice(0,80),
+      concepto: conceptoFinal,
       usuario: userId, monto: total, fecha: new Date(),
       status:"solicitado", comprobantes: facturas.length, cfdi: facturas,
+      saldoPendiente: 0,
     });
     showToast("✓ Reembolso " + id + " enviado");
     setEnviado(true);
@@ -7157,6 +7185,18 @@ function M_Empty({ icon = "inbox", title, sub }) {
 // ───────────────────────── Usuario ─────────────────────────
 
 function MUserHome({ userId, push, setTab }) {
+  const [, forceMUH] = React.useReducer(x=>x+1, 0);
+  React.useEffect(() => {
+    if (!userId || !window.loadUserSolicitudes) return;
+    window.loadUserSolicitudes(userId).then(fresh => {
+      fresh.forEach(m => {
+        const ix = window.SOLICITUDES.findIndex(x => x.id === m.id);
+        if (ix >= 0) Object.assign(window.SOLICITUDES[ix], m);
+        else window.SOLICITUDES.unshift(m);
+      });
+      forceMUH();
+    });
+  }, [userId]);
   const u = window.findUser(userId);
   const c = window.findCentro(u.centro);
   const mine = window.SOLICITUDES.filter(s => s.usuario === userId);
@@ -7267,11 +7307,53 @@ function MUserList({ userId, push }) {
 // ───────────────────────── Gerente ─────────────────────────
 
 function MGerenteBandeja({ userId, push, showSnack }) {
+  const [, forceMGB] = React.useReducer(x=>x+1, 0);
+  React.useEffect(() => {
+    if (!window.sb) return;
+    const teamIds = window.USUARIOS.filter(u => u.gerente === userId).map(u => u.id);
+    if (!teamIds.length) return;
+    window.sb.from("solicitudes").select("*")
+      .in("usuario_id", teamIds).eq("status","solicitado")
+      .order("fecha",{ascending:false})
+      .then(({data})=>{
+        if (!data) return;
+        data.forEach(s=>{
+          const m={id:s.id,tipo:s.tipo,concepto:s.concepto,usuario:s.usuario_id,
+            monto:parseFloat(s.monto)||0,fecha:new Date(s.fecha),status:s.status,
+            saldoPendiente:parseFloat(s.saldo_pendiente)||0};
+          const ix=window.SOLICITUDES.findIndex(x=>x.id===m.id);
+          if(ix>=0) Object.assign(window.SOLICITUDES[ix],m);
+          else window.SOLICITUDES.unshift(m);
+        });
+        forceMGB();
+      });
+  }, [userId]);
   const teamIds = window.USUARIOS.filter(u => u.gerente === userId).map(u => u.id);
   const all = window.SOLICITUDES.filter(s => s.status === "solicitado" && teamIds.includes(s.usuario));
   const [, force] = React.useReducer(x => x + 1, 0);
-  const aprobar = (s) => { s.status = "autorizado"; showSnack(`✓ ${s.id} autorizado`); force(); };
-  const rechazar = (s) => { s.status = "rechazado"; showSnack(`✕ ${s.id} rechazado`); force(); };
+  const aprobar = async (s) => {
+    if (window.sb) {
+      const updateRow = { status: "autorizado" };
+      if (s.tipo === "anticipo") updateRow.saldo_pendiente = s.monto;
+      const { error } = await window.sb.from("solicitudes").update(updateRow).eq("id", s.id);
+      if (error) { showSnack("Error: " + error.message); return; }
+    }
+    s.status = "autorizado";
+    if (s.tipo === "anticipo") s.saldoPendiente = s.saldoPendiente || s.monto;
+    showSnack(`✓ ${s.id} autorizado`); force();
+  };
+  const rechazar = async (s) => {
+    const motivo = prompt("Motivo del rechazo:");
+    if (!motivo || !motivo.trim()) return;
+    if (window.sb) {
+      const { error } = await window.sb.from("solicitudes").update({
+        status: "rechazado", motivo_rechazo: motivo.trim(), saldo_pendiente: 0
+      }).eq("id", s.id);
+      if (error) { showSnack("Error: " + error.message); return; }
+    }
+    s.status = "rechazado"; s.motivoRechazo = motivo.trim(); s.saldoPendiente = 0;
+    showSnack(`✕ ${s.id} rechazado`); force();
+  };
   return (
     <div className="m-pad">
       <div style={{paddingTop:4, marginBottom:14}}>
@@ -7377,10 +7459,46 @@ function MGerenteHistorial({ userId, push }) {
 // ───────────────────────── Tesorería ─────────────────────────
 
 function MTesoreriaLiberar({ push, showSnack }) {
+  const [, forceMTL] = React.useReducer(x=>x+1, 0);
+  React.useEffect(() => {
+    if (!window.sb) return;
+    window.sb.from("solicitudes").select("*").eq("status","autorizado")
+      .order("fecha",{ascending:false}).then(({data})=>{
+        if (!data) return;
+        data.forEach(s=>{
+          const m={id:s.id,tipo:s.tipo,concepto:s.concepto,usuario:s.usuario_id,
+            monto:parseFloat(s.monto)||0,fecha:new Date(s.fecha),status:s.status,
+            saldoPendiente:parseFloat(s.saldo_pendiente)||0,
+            anticipoRef:s.anticipo_ref||null};
+          const ix=window.SOLICITUDES.findIndex(x=>x.id===m.id);
+          if(ix>=0) Object.assign(window.SOLICITUDES[ix],m);
+          else window.SOLICITUDES.unshift(m);
+        });
+        forceMTL();
+      });
+  }, []);
   const [items, setItems] = React.useState(() => window.SOLICITUDES.filter(s => s.status === "autorizado"));
-  const liberar = (id) => {
+  const liberar = async (id) => {
     const s = window.SOLICITUDES.find(x => x.id === id);
-    if (s) s.status = "liberado";
+    if (!s) return;
+    const newStatus = s.tipo === "comprobacion" ? "comprobado" : "liberado";
+    if (window.sb) {
+      const updateData = { status: newStatus };
+      if (s.tipo === "anticipo") updateData.saldo_pendiente = s.monto;
+      if (s.tipo === "comprobacion") updateData.saldo_pendiente = 0;
+      const { error } = await window.sb.from("solicitudes").update(updateData).eq("id", id);
+      if (error) { showSnack("Error: " + error.message); return; }
+      // Si es comprobación, actualizar anticipo padre
+      if (s.tipo === "comprobacion" && s.anticipoRef) {
+        const ant = window.SOLICITUDES.find(x => x.id === s.anticipoRef);
+        if (ant) await window.sb.from("solicitudes").update({
+          status: ant.status, saldo_pendiente: ant.saldoPendiente
+        }).eq("id", s.anticipoRef);
+      }
+    }
+    s.status = newStatus;
+    if (s.tipo === "anticipo") s.saldoPendiente = s.monto;
+    if (s.tipo === "comprobacion") s.saldoPendiente = 0;
     setItems(items.filter(i => i.id !== id));
     showSnack(`✓ ${id} dispersado vía SPEI`);
   };
@@ -7523,7 +7641,17 @@ function MContadorPolizas({ push, showSnack }) {
             <div className="muted" style={{fontSize:11, marginTop:2}}>{u.nombre} · {s.comprobantes || 0} facturas</div>
             <div className="spread" style={{marginTop:8}}>
               <span className="mono" style={{fontSize:14, fontWeight:600}}>{window.fmtMXN(s.monto)}</span>
-              <button className="btn sm primary" onClick={(e) => { e.stopPropagation(); s.status = "comprobado"; showSnack(`✓ ${s.id} timbrado`); }}>Timbrar</button>
+              <button className="btn sm primary" onClick={async (e) => {
+                e.stopPropagation();
+                if (window.sb) {
+                  const { error } = await window.sb.from("solicitudes").update({
+                    status: "comprobado", saldo_pendiente: 0
+                  }).eq("id", s.id);
+                  if (error) { showSnack("Error: " + error.message); return; }
+                }
+                s.status = "comprobado";
+                showSnack(`✓ ${s.id} timbrado`);
+              }}>Timbrar</button>
             </div>
           </div>
         );
@@ -7895,11 +8023,33 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
   const delL = (id) => setLineas(lineas.filter(l => l.id !== id));
   const total = lineas.reduce((a, l) => a + (parseFloat(l.monto) || 0), 0);
 
-  const enviar = () => {
+  const enviar = async () => {
     if (!form.concepto.trim()) { showSnack("⚠ Escribe un concepto"); return; }
     if (!form.destino.trim())  { showSnack("⚠ Indica el destino"); return; }
     if (total <= 0)            { showSnack("⚠ Agrega al menos un monto"); return; }
     const id = "ANT-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-4);
+    const u = window.findUser(userId);
+    // Persistir en Supabase
+    if (window.sb) {
+      const { error } = await window.sb.from("solicitudes").insert({
+        id, tipo:"anticipo", concepto: form.concepto.trim(),
+        usuario_id: userId, monto: total,
+        status:"solicitado", saldo_pendiente: total,
+        centro_id: u && u.centro ? u.centro : null,
+        destino: form.destino.trim(),
+        fecha_salida: form.salida || null,
+        fecha_regreso: form.regreso || null,
+        notas: form.notas||null,
+        fecha: new Date().toISOString(),
+      });
+      if (error) { showSnack("⚠ Error: " + error.message); return; }
+      if (lineas.length > 0) {
+        await window.sb.from("solicitud_items").insert(
+          lineas.map((l,i)=>({ solicitud_id:id, cuenta:l.cuenta,
+            descripcion:l.desc||l.concepto||"", monto:parseFloat(l.monto)||0, orden:i }))
+        );
+      }
+    }
     window.SOLICITUDES.unshift({
       id, tipo:"anticipo", concepto: form.concepto.trim(),
       usuario: userId, monto: total, fecha: new Date(),
@@ -8084,21 +8234,54 @@ function MNuevaComprobacion({ userId, onDone, showSnack }) {
     e.target.value = "";
   };
 
-  const enviar = () => {
+  const enviar = async () => {
     if (facturas.length === 0) { showSnack("⚠ Sube al menos una factura"); return; }
+    const saldoActual = sel.saldoPendiente || sel.monto;
+    if (totalComp > saldoActual + 0.01) {
+      showSnack(`⚠ Excede el saldo disponible ($${saldoActual.toFixed(2)})`); return;
+    }
     const id = "CMP-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-4);
+    const nuevoSaldo = Math.max(0, saldoActual - totalComp);
+    const nuevoStatusAnt = nuevoSaldo === 0 ? "comprobado" : "parcial";
+
+    // Persistir comprobación en Supabase
+    if (window.sb) {
+      const { error } = await window.sb.from("solicitudes").insert({
+        id, tipo:"comprobacion", concepto: `Comprobación ${sel.id}`,
+        usuario_id: userId, monto: totalComp,
+        status:"solicitado", anticipo_ref: sel.id,
+        comprobantes: facturas.length, saldo_pendiente: 0,
+        fecha: new Date().toISOString(),
+      });
+      if (error) { showSnack("⚠ Error: " + error.message); return; }
+      if (facturas.length > 0) {
+        await window.sb.from("comprobantes_cfdi").insert(
+          facturas.map(it=>({
+            solicitud_id: id,
+            uuid: it.uuidFull || it.uuid || ("SIN-UUID-"+Date.now()),
+            emisor: it.emisor, concepto: it.concepto,
+            subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
+            cuenta: it.cuenta, confianza: it.confianza||0.9,
+          }))
+        );
+      }
+      // Actualizar saldo del anticipo padre
+      await window.sb.from("solicitudes").update({
+        saldo_pendiente: nuevoSaldo, status: nuevoStatusAnt,
+      }).eq("id", sel.id);
+    }
+
     window.SOLICITUDES.unshift({
       id, tipo: "comprobacion", concepto: `Comprobación ${sel.id}`,
       usuario: userId, monto: totalComp, fecha: new Date(),
       status: "solicitado", anticipoRef: sel.id, comprobantes: facturas.length, cfdi: facturas,
+      saldoPendiente: 0,
     });
-    // Actualiza saldo del anticipo
     const ant = window.SOLICITUDES.find(s => s.id === sel.id);
     if (ant) {
-      ant.saldoPendiente = Math.max(0, (ant.saldoPendiente || 0) - totalComp);
+      ant.saldoPendiente = nuevoSaldo;
       ant.comprobantes = (ant.comprobantes || 0) + facturas.length;
-      if (ant.saldoPendiente === 0) ant.status = "comprobado";
-      else ant.status = "parcial";
+      ant.status = nuevoStatusAnt;
     }
     showSnack(`✓ Comprobación ${id} enviada`);
     setTimeout(onDone, 1100);
