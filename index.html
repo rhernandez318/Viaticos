@@ -1425,6 +1425,38 @@ window.refreshSolicitudes = async (callback) => {
   if (typeof callback === 'function') callback();
 };
 
+// Carga solicitudes de un usuario específico desde Supabase
+window.loadUserSolicitudes = async (userId) => {
+  if (!supabase || !userId) return [];
+  try {
+    const { data } = await supabase
+      .from('solicitudes')
+      .select('*, items:solicitud_items(*), cfdi:comprobantes_cfdi(*)')
+      .eq('usuario_id', userId)
+      .order('fecha', { ascending: false });
+    if (!data) return [];
+    return data.map(s => ({
+      id: s.id, tipo: s.tipo, concepto: s.concepto,
+      usuario: s.usuario_id, monto: parseFloat(s.monto)||0,
+      fecha: new Date(s.fecha), status: s.status,
+      saldoPendiente: s.status === 'rechazado' ? 0
+        : (s.saldo_pendiente !== null ? parseFloat(s.saldo_pendiente)||0
+          : (['liberado','parcial'].includes(s.status) ? parseFloat(s.monto)||0 : 0)),
+      anticipoRef: s.anticipo_ref || null,
+      motivoRechazo: s.motivo_rechazo || null,
+      updatedAt: s.updated_at ? new Date(s.updated_at) : null,
+      comprobantes: s.comprobantes || 0,
+      items: (s.items||[]).map(i=>({cuenta:i.cuenta,desc:i.descripcion,monto:parseFloat(i.monto)||0})),
+      cfdi: (s.cfdi||[]).map(c=>({
+        id: c.id, uuid: c.uuid, uuidFull: c.uuid, emisor: c.emisor,
+        concepto: c.concepto, subtotal: parseFloat(c.subtotal)||0,
+        iva: parseFloat(c.iva)||0, total: parseFloat(c.total)||0,
+        cuenta: c.cuenta, confianza: parseFloat(c.confianza)||0.9,
+      })),
+    }));
+  } catch(e) { console.error('loadUserSolicitudes:', e); return []; }
+};
+
 // Login con Supabase Auth
 async function sbLogin(correo, pwd) {
   if (!supabase) throw new Error("Supabase no inicializado");
@@ -2675,6 +2707,23 @@ Object.assign(window, { Sidebar, Topbar, Stepper, StatusBadge, TipoBadge, Spark,
 function UserDashboard({ userId, openDetail, setPage }) {
   const u = window.findUser(userId) || { nombre:"Usuario", iniciales:"?", centro:"", division:"4105", rol:"usuario" };
   const c = window.findCentro(u.centro) || { nombre: u.centro || "Sin centro", id: u.centro || "" };
+  const [, forceRefresh] = React.useReducer(x=>x+1, 0);
+
+  // Recargar desde Supabase al montar para garantizar datos frescos
+  React.useEffect(() => {
+    if (!userId || !window.loadUserSolicitudes) return;
+    window.loadUserSolicitudes(userId).then(fresh => {
+      if (!fresh.length) return;
+      // Merge into SOLICITUDES
+      fresh.forEach(m => {
+        const ix = window.SOLICITUDES.findIndex(x => x.id === m.id);
+        if (ix >= 0) Object.assign(window.SOLICITUDES[ix], m);
+        else window.SOLICITUDES.unshift(m);
+      });
+      forceRefresh();
+    });
+  }, [userId]);
+
   const mios = window.SOLICITUDES.filter(s => s.usuario === userId);
   const [filtro, setFiltro] = React.useState("todas");
   const [, forceRender] = React.useReducer(x => x + 1, 0);
@@ -3508,6 +3557,18 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
 }
 
 function Reembolsos({ userId, setPage }) {
+  const [, forceR] = React.useReducer(x=>x+1, 0);
+  React.useEffect(() => {
+    if (!userId || !window.loadUserSolicitudes) return;
+    window.loadUserSolicitudes(userId).then(fresh => {
+      fresh.forEach(m => {
+        const ix = window.SOLICITUDES.findIndex(x => x.id === m.id);
+        if (ix >= 0) Object.assign(window.SOLICITUDES[ix], m);
+        else window.SOLICITUDES.unshift(m);
+      });
+      forceR();
+    });
+  }, [userId]);
   const mine = window.SOLICITUDES.filter(s => s.usuario === userId && s.tipo === "reembolso");
   const all = window.SOLICITUDES.filter(s => s.tipo === "reembolso");
   return (
@@ -3725,6 +3786,27 @@ function GerenteBandeja({ openDetail, userId, role }) {
   const [toast, setToast]       = React.useState(null);
   const [rechazoModal, setRechazoModal] = React.useState(null);
   const [detalleRapido, setDetalleRapido] = React.useState(null);
+
+  // Recargar pendientes desde Supabase al montar
+  React.useEffect(() => {
+    if (!window.sb) return;
+    let query = window.sb.from("solicitudes").select("*").eq("status","solicitado");
+    if (teamIds) query = query.in("usuario_id", teamIds);
+    query.order("fecha",{ascending:false}).then(({data})=>{
+      if (!data) return;
+      const mapped = data.map(s=>({
+        id:s.id, tipo:s.tipo, concepto:s.concepto, usuario:s.usuario_id,
+        monto:parseFloat(s.monto)||0, fecha:new Date(s.fecha), status:s.status,
+        saldoPendiente:parseFloat(s.saldo_pendiente)||0,
+      }));
+      mapped.forEach(m=>{
+        const ix=window.SOLICITUDES.findIndex(x=>x.id===m.id);
+        if(ix>=0) Object.assign(window.SOLICITUDES[ix],m);
+        else window.SOLICITUDES.unshift(m);
+      });
+      setItems(mapped);
+    });
+  }, [userId]);
 
   const showToast = (msg, tipo = "ok") => {
     setToast({ msg, tipo });
@@ -4904,6 +4986,13 @@ function Deudores({ role, userId }) {
 
   const [statusFiltro, setStatusFiltro] = React.useState(null);
   const [tipoFiltro,   setTipoFiltro]   = React.useState(null);
+  const [, forceD] = React.useReducer(x=>x+1, 0);
+
+  // Recargar desde Supabase al montar
+  React.useEffect(() => {
+    if (!window.loadSolicitudes) return;
+    window.loadSolicitudes().then(()=>forceD());
+  }, []);
 
   const solicsFilt = React.useMemo(() => window.SOLICITUDES.filter(s => {
     const u = window.findUser(s.usuario);
@@ -5222,6 +5311,12 @@ function Reportes({ role, userId }) {
   const [mesFiltro,   setMesFiltro]   = React.useState(null);
   const [statusFiltro,setStatusFiltro]= React.useState(null);
   const [tipoFiltro,  setTipoFiltro]  = React.useState(null);
+  const [, forceRep] = React.useReducer(x=>x+1, 0);
+
+  React.useEffect(() => {
+    if (!window.loadSolicitudes) return;
+    window.loadSolicitudes().then(()=>forceRep());
+  }, []);
 
   const solicsFilt = React.useMemo(() => window.SOLICITUDES.filter(s => {
     const u = window.findUser(s.usuario);
@@ -6682,6 +6777,31 @@ function GerenteEquipo({ userId }) {
 function GerenteHistorial({ openDetail, userId }) {
   const gerenteId = userId || "U101";
   const teamIds = window.USUARIOS.filter(u => u.gerente === gerenteId).map(u => u.id);
+  const [, forceH] = React.useReducer(x=>x+1, 0);
+
+  React.useEffect(() => {
+    if (!window.sb || !teamIds.length) return;
+    window.sb.from("solicitudes")
+      .select("*")
+      .in("usuario_id", teamIds)
+      .in("status", ["autorizado","liberado","comprobado","rechazado","parcial"])
+      .order("fecha", { ascending: false })
+      .limit(200)
+      .then(({data}) => {
+        if (!data) return;
+        data.forEach(s => {
+          const m = { id:s.id, tipo:s.tipo, concepto:s.concepto, usuario:s.usuario_id,
+            monto:parseFloat(s.monto)||0, fecha:new Date(s.fecha), status:s.status,
+            saldoPendiente: s.status==="rechazado"?0:(parseFloat(s.saldo_pendiente)||0),
+            motivoRechazo: s.motivo_rechazo||null };
+          const ix = window.SOLICITUDES.findIndex(x => x.id === m.id);
+          if (ix>=0) Object.assign(window.SOLICITUDES[ix], m);
+          else window.SOLICITUDES.unshift(m);
+        });
+        forceH();
+      });
+  }, [userId]);
+
   const historial = window.SOLICITUDES.filter(s =>
     teamIds.includes(s.usuario) &&
     ["autorizado","liberado","comprobado","rechazado","parcial"].includes(s.status)
@@ -8766,7 +8886,26 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
 }
 
 function TesoreriaPagados({ openDetail }) {
-  const pagados = window.SOLICITUDES.filter(s => s.status==="liberado");
+  const [, forceTP] = React.useReducer(x=>x+1, 0);
+  React.useEffect(() => {
+    if (!window.sb) return;
+    window.sb.from("solicitudes").select("*")
+      .in("status",["liberado","comprobado"])
+      .order("fecha",{ascending:false}).limit(200)
+      .then(({data})=>{
+        if (!data) return;
+        data.forEach(s=>{
+          const m={id:s.id,tipo:s.tipo,concepto:s.concepto,usuario:s.usuario_id,
+            monto:parseFloat(s.monto)||0,fecha:new Date(s.fecha),status:s.status,
+            saldoPendiente:parseFloat(s.saldo_pendiente)||0};
+          const ix=window.SOLICITUDES.findIndex(x=>x.id===m.id);
+          if(ix>=0) Object.assign(window.SOLICITUDES[ix],m);
+          else window.SOLICITUDES.unshift(m);
+        });
+        forceTP();
+      });
+  }, []);
+  const pagados = window.SOLICITUDES.filter(s => ["liberado","comprobado"].includes(s.status));
   const [busqueda, setBusqueda] = React.useState("");
   const filtrados = pagados.filter(s => {
     if (!busqueda.trim()) return true;
