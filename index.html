@@ -1323,7 +1323,9 @@ async function loadSolicitudes() {
   // Mostrar solicitudes cacheadas mientras carga Supabase
   try {
     const cached = localStorage.getItem("viaticos_solicitudes");
-    if (cached && SOLICITUDES.length === 0) {
+    const cacheTs = parseInt(localStorage.getItem("viaticos_solicitudes_ts") || "0");
+    const cacheAge = Date.now() - cacheTs;
+    if (cached && SOLICITUDES.length === 0 && cacheAge < 300000) { // 5 min max
       const parsed = JSON.parse(cached);
       // Solo cachear solicitudes de usuarios que existen en USUARIOS
       const validUserIds = new Set(USUARIOS.map(u => u.id));
@@ -1351,10 +1353,14 @@ async function loadSolicitudes() {
     SOLICITUDES.length = 0;
     (data || []).forEach(s => {
       // Fallback: si saldo_pendiente es null en Supabase y el anticipo está activo → usar monto
-      const saldoCalc = (s.saldo_pendiente !== null && s.saldo_pendiente !== undefined)
-        ? parseFloat(s.saldo_pendiente) || 0
-        : (s.tipo === "anticipo" && ["autorizado","liberado","parcial"].includes(s.status)
-            ? parseFloat(s.monto) || 0 : 0);
+      // saldoPendiente: solo contar si está liberado/parcial (dinero ya salió)
+      // Si saldo_pendiente es null en Supabase y está liberado → usar monto como fallback
+      // Si está rechazado → siempre 0
+      const saldoCalc = s.status === "rechazado" ? 0
+        : (s.saldo_pendiente !== null && s.saldo_pendiente !== undefined)
+          ? parseFloat(s.saldo_pendiente) || 0
+          : (s.tipo === "anticipo" && ["liberado","parcial"].includes(s.status)
+              ? parseFloat(s.monto) || 0 : 0);
       SOLICITUDES.push({
         id:             s.id,
         tipo:           s.tipo,
@@ -1402,6 +1408,7 @@ async function loadSolicitudes() {
         fecha: s.fecha instanceof Date ? s.fecha.toISOString() : s.fecha,
       }));
       localStorage.setItem("viaticos_solicitudes", JSON.stringify(toCache));
+      localStorage.setItem("viaticos_solicitudes_ts", Date.now().toString());
     } catch(e) {}
     return true;
   } catch (err) {
@@ -2681,10 +2688,13 @@ function UserDashboard({ userId, openDetail, setPage }) {
     window.BORRADORES = (window.BORRADORES || []).filter(b => b.id !== id);
     forceRender();
   };
-  const anticipos = mine.filter(s => s.tipo === "anticipo");
-  const pendientes = anticipos.filter(s => s.saldoPendiente > 0).reduce((a,s) => a + s.saldoPendiente, 0);
+  const anticipos = mine.filter(s => s.tipo === "anticipo" && s.status !== "rechazado");
+  // Solo contar saldo de anticipos liberados/parciales (dinero ya dispersado)
+  const pendientes = anticipos
+    .filter(s => ["liberado","parcial"].includes(s.status) && s.saldoPendiente > 0)
+    .reduce((a,s) => a + s.saldoPendiente, 0);
   const enProceso = mine.filter(s => ["solicitado","autorizado"].includes(s.status)).length;
-  const totalAnio = mine.filter(s => s.tipo !== "anticipo" || s.status === "comprobado").reduce((a,s) => a + s.monto, 0);
+  const totalAnio = mine.filter(s => s.status !== "rechazado" && (s.tipo !== "anticipo" || s.status === "comprobado")).reduce((a,s) => a + s.monto, 0);
 
   return (
     <>
@@ -2704,7 +2714,7 @@ function UserDashboard({ userId, openDetail, setPage }) {
         <div className="kpi">
           <div className="kpi-label">Saldo por comprobar</div>
           <div className="kpi-value">{window.fmtMXN(pendientes)}</div>
-          <div className="kpi-delta down">{mios.filter(s=>s.tipo==="anticipo"&&(s.saldoPendiente||0)>0).length} anticipo(s) abierto(s)</div>
+          <div className="kpi-delta down">{mios.filter(s=>s.tipo==="anticipo"&&["liberado","parcial"].includes(s.status)&&(s.saldoPendiente||0)>0).length} anticipo(s) por comprobar</div>
           <Spark values={[10,12,8,14,11,15,12,18]} />
         </div>
         <div className="kpi">
@@ -3146,7 +3156,7 @@ function CompUploader({ onAdd }) {
 function NuevaComprobacion({ setPage, userId = "U001" }) {
   const getPendientes = () => window.SOLICITUDES.filter(s =>
     s.tipo === "anticipo" && s.usuario === userId &&
-    ["autorizado","liberado","parcial"].includes(s.status) &&
+    ["liberado","parcial"].includes(s.status) &&
     (s.saldoPendiente||0) > 0
   );
   const [pendientes, setPendientes] = React.useState(getPendientes);
@@ -3163,7 +3173,7 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
           .select("*")
           .eq("usuario_id", userId)
           .eq("tipo", "anticipo")
-          .in("status", ["autorizado","liberado","parcial"]);
+          .in("status", ["liberado","parcial"]);
         // Nota: filtramos saldo_pendiente > 0 en JS porque puede ser null en Supabase
         if (data && data.length > 0) {
           const mapped = data
@@ -4842,7 +4852,7 @@ function Deudores({ role, userId }) {
   ), [solicsFilt, statusFiltro, tipoFiltro]);
 
   // ── Antigüedad ──────────────────────────────────────────────────────────
-  const ahoraSaldos = solicsFilt.filter(s => s.tipo==="anticipo" && (s.saldoPendiente||0)>0);
+  const ahoraSaldos = solicsFilt.filter(s => s.tipo==="anticipo" && ["liberado","parcial"].includes(s.status) && (s.saldoPendiente||0)>0);
   const buckets = {"0-15":[],"16-30":[],"31-60":[],"60+":[]};
   ahoraSaldos.forEach(s => {
     const d = Math.floor((hoy-s.fecha)/86400000);
@@ -5159,7 +5169,7 @@ function Reportes({ role, userId }) {
     (!tipoFiltro   || s.tipo   === tipoFiltro)
   ), [solicsFilt, statusFiltro, tipoFiltro]);
 
-  const totalGasto    = solicsFilt.reduce((a,s)=>a+s.monto,0);
+  const totalGasto    = solicsFilt.filter(s=>s.status!=="rechazado").reduce((a,s)=>a+s.monto,0);
   const totalLiberado = solicsFilt.filter(s=>["liberado","comprobado"].includes(s.status)).reduce((a,s)=>a+s.monto,0);
   const totalDeudor   = solicsFilt.filter(s=>s.tipo==="anticipo"&&(s.saldoPendiente||0)>0).reduce((a,s)=>a+(s.saldoPendiente||0),0);
   const totalPend     = solicsFilt.filter(s=>["solicitado","autorizado"].includes(s.status)).reduce((a,s)=>a+s.monto,0);
@@ -7795,7 +7805,7 @@ function MNuevoReembolso({ userId, onDone }) {
 }
 
 function MNuevaComprobacion({ userId, onDone, showSnack }) {
-  const pendientes = window.SOLICITUDES.filter(s => s.tipo === "anticipo" && s.usuario === userId && ["autorizado","liberado","parcial"].includes(s.status) && (s.saldoPendiente || 0) > 0);
+  const pendientes = window.SOLICITUDES.filter(s => s.tipo === "anticipo" && s.usuario === userId && ["liberado","parcial"].includes(s.status) && (s.saldoPendiente || 0) > 0);
   const [sel, setSel] = React.useState(null);
   const [facturas, setFacturas] = React.useState([]);
 
