@@ -2968,6 +2968,28 @@ function CompUploader({ onAdd }) {
   const [drag, setDrag] = React.useState(false);
   const inputRef = React.useRef(null);
 
+  const processFiles = (fileList) => {
+    Array.from(fileList).forEach(file => {
+      if (!file.name.endsWith(".xml") && !file.name.endsWith(".XML")) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const parsed = parseCFDI(e.target.result);
+        if (parsed) {
+          const item = { ...parsed, file };
+          setFiles(prev => [...prev, item]);
+          if (onAdd) onAdd([item]);
+        }
+      };
+      reader.readAsText(file);
+    });
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault();
+    setDrag(false);
+    processFiles(e.dataTransfer.files);
+  };
+
   const guessCuenta = (text) => {
     const n = (text || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
     const hasClave = (...keys) => keys.some(k => n.includes(k));
