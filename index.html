@@ -2975,8 +2975,8 @@ function SolicitarAnticipo({ setPage, userId }) {
           <div className="form-grid cols-2">
             <div className="field"><label>Concepto / motivo</label><input className="input" value={form.concepto} onChange={e => updField("concepto", e.target.value)}/></div>
             <div className="field"><label>Centro de beneficio</label><select className="select" value={form.centro} onChange={e => updField("centro", e.target.value)}>{window.CENTROS.map(c => <option key={c.id} value={c.id}>{c.id} · {c.nombre}</option>)}</select></div>
-            <div className="field"><label>Fecha salida</label><input className="input" value={form.salida} onChange={e => updField("salida", e.target.value)}/></div>
-            <div className="field"><label>Fecha regreso</label><input className="input" value={form.regreso} onChange={e => updField("regreso", e.target.value)}/></div>
+            <div className="field"><label>Fecha salida</label><input className="input" type="date" value={form.salida} onChange={e => updField("salida", e.target.value)}/></div>
+            <div className="field"><label>Fecha regreso</label><input className="input" type="date" min={form.salida||undefined} value={form.regreso} onChange={e => updField("regreso", e.target.value)}/></div>
             <div className="field"><label>Destino</label><input className="input" value={form.destino} onChange={e => updField("destino", e.target.value)}/></div>
             <div className="field"><label>Monto solicitado (MXN)</label><input className="input mono" value={form.monto} onChange={e => updField("monto", e.target.value)}/></div>
             <div className="field" style={{gridColumn:"1 / -1"}}><label>Notas para tu gerente (opcional)</label><textarea className="textarea" value={form.notas} onChange={e => updField("notas", e.target.value)}/></div>
@@ -8090,11 +8090,11 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
         <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12}}>
           <div>
             <label style={{fontSize:11, color:"var(--text-3)", fontWeight:500, display:"block", marginBottom:4}}>Salida</label>
-            <input className="input" placeholder="dd mmm" style={{width:"100%"}} value={form.salida} onChange={e => upd("salida", e.target.value)}/>
+            <input className="input" type="date" style={{width:"100%"}} value={form.salida} onChange={e => upd("salida", e.target.value)}/>
           </div>
           <div>
             <label style={{fontSize:11, color:"var(--text-3)", fontWeight:500, display:"block", marginBottom:4}}>Regreso</label>
-            <input className="input" placeholder="dd mmm" style={{width:"100%"}} value={form.regreso} onChange={e => upd("regreso", e.target.value)}/>
+            <input className="input" type="date" min={form.salida||undefined} style={{width:"100%"}} value={form.regreso} onChange={e => upd("regreso", e.target.value)}/>
           </div>
         </div>
         <div style={{marginBottom:12}}>
