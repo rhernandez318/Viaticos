@@ -2407,7 +2407,7 @@ function generarNotificaciones(role, userId) {
     // ── 5. Saldo deudor alto en equipo ────────────────────────────────────
     teamIds.forEach(uid => {
       const saldo = todos.filter(s =>
-        s.usuario === uid && s.tipo === "anticipo" && (s.saldoPendiente||0) > 0
+        s.usuario === uid && s.tipo === "anticipo" && ["liberado","parcial"].includes(s.status) && (s.saldoPendiente||0) > 0
       ).reduce((a,s) => a + (s.saldoPendiente||0), 0);
       if (saldo >= SALDO_ALERTA) {
         const u = window.findUser(uid);
@@ -2443,7 +2443,7 @@ function generarNotificaciones(role, userId) {
 
     // ── 7. Saldos deudores mayores al umbral ─────────────────────────────
     const porUser = {};
-    todos.filter(s => s.tipo==="anticipo" && (s.saldoPendiente||0)>0)
+    todos.filter(s => s.tipo==="anticipo" && ["liberado","parcial"].includes(s.status) && (s.saldoPendiente||0)>0)
       .forEach(s => { porUser[s.usuario]=(porUser[s.usuario]||0)+(s.saldoPendiente||0); });
     Object.entries(porUser).filter(([,v])=>v>=SALDO_ALERTA).forEach(([uid,saldo])=>{
       const u = window.findUser(uid);
@@ -4817,7 +4817,7 @@ function AdminUsuarios() {
               options:[{value:"4105",label:"4105"},{value:"4106",label:"4106"}]},
             {key:"gerente", label:"Reporta a", value:editing.gerente||"", type:"select",
               options:[{value:"", label:"— ninguno —"},
-                ...users.filter(u=>u.rol==="gerente"||u.rol==="admin").map(g=>({value:g.id,label:g.nombre+" ("+g.rol+")" }))]},
+                ...users.filter(u=>(u.rol==="gerente"||u.rol==="admin")&&u.id!==editing.id).map(g=>({value:g.id,label:g.nombre+" ("+g.rol+")" }))]},
             {key:"password", label: users.find(u=>u.id===editing.id) ? "Restablecer contraseña" : "Contraseña inicial",
               value: users.find(u=>u.id===editing.id) ? "" : "1234", full:true,
               placeholder: users.find(u=>u.id===editing.id) ? "Dejar vacío para no cambiarla" : "1234",
@@ -7791,7 +7791,7 @@ function MTesoreriaPagados({ push }) {
 
 function MTesoreriaDeudores({ push }) {
   const grouped = {};
-  window.SOLICITUDES.filter(s => s.tipo === "anticipo" && s.saldoPendiente > 0).forEach(s => {
+  window.SOLICITUDES.filter(s => s.tipo === "anticipo" && ["liberado","parcial"].includes(s.status) && s.saldoPendiente > 0).forEach(s => {
     grouped[s.usuario] = (grouped[s.usuario] || 0) + s.saldoPendiente;
   });
   const list = Object.entries(grouped).sort((a,b) => b[1] - a[1]).map(([uid, m]) => ({ u: window.findUser(uid), monto: m }));
