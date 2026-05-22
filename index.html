@@ -1521,13 +1521,22 @@ function getBancosAccount(division) {
 function calcSaldo(anticipoId) {
   const ant = SOLICITUDES.find(s => s.id === anticipoId);
   if (!ant || ant.tipo !== "anticipo") return;
+  // Solo restar comprobaciones efectivamente liberadas por tesorería
+  // (comprobado = tesorería ya las procesó)
   const comprobado = SOLICITUDES
     .filter(s => s.tipo === "comprobacion"
       && s.anticipoRef === anticipoId
-      && ["autorizado","liberado","comprobado"].includes(s.status))
+      && ["liberado","comprobado"].includes(s.status))
     .reduce((a, s) => a + (s.monto || 0), 0);
-  ant.saldoPendiente = Math.max(0, Math.round((ant.monto - comprobado) * 100) / 100);
-  ant.status = ant.saldoPendiente <= 0 ? "comprobado" : ant.saldoPendiente < ant.monto ? "parcial" : ant.status;
+  // Restar también depósitos de cierre (reintegros)
+  const depositado = SOLICITUDES
+    .filter(s => s.tipo === "deposito"
+      && s.anticipoRef === anticipoId
+      && ["liberado","comprobado"].includes(s.status))
+    .reduce((a, s) => a + (s.monto || 0), 0);
+  ant.saldoPendiente = Math.max(0, Math.round((ant.monto - comprobado - depositado) * 100) / 100);
+  if (ant.saldoPendiente <= 0) ant.status = "comprobado";
+  else if (ant.saldoPendiente < ant.monto) ant.status = "parcial";
 }
 
 // Recalcular todos al cargar
@@ -3301,7 +3310,21 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
                       <td className="num">{window.fmtMXN(a.monto)}</td>
                       <td className="num"><strong>{window.fmtMXN(a.saldoPendiente)}</strong></td>
                       <td><StatusBadge status={a.status}/></td>
-                      <td className="right"><button className="btn sm primary">Comprobar <Icon name="chevR" size={12}/></button></td>
+                      <td className="right" onClick={e=>e.stopPropagation()}>
+                        <div style={{display:"inline-flex",gap:6}}>
+                          {a.status === "parcial" && (
+                            <button className="btn sm ghost" onClick={()=>{
+                              window.CIERRE_ANT_ID = a.id;
+                              setPage && setPage("cerrar-anticipo");
+                            }}>
+                              <Icon name="x" size={12}/> Cerrar
+                            </button>
+                          )}
+                          <button className="btn sm primary" onClick={()=>setAnticipoSel(a)}>
+                            Comprobar <Icon name="chevR" size={12}/>
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -3339,8 +3362,14 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
     }
 
     const id = "CMP-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-4);
-    const nuevoSaldo = anticipoSel ? Math.max(0, saldoActual - totalComp) : 0;
-    const nuevoStatus = nuevoSaldo <= 0 ? "comprobado" : "parcial";
+    // Saldo "disponible para comprobar" — descuenta también comprobaciones pendientes
+    // pero el saldo CONTABLE del anticipo solo cambia cuando tesorería libera la comprobación
+    const otrasComprobsPendientes = window.SOLICITUDES.filter(s =>
+      s.tipo === "comprobacion" && s.anticipoRef === anticipoSel?.id &&
+      s.id !== id && ["solicitado","autorizado"].includes(s.status)
+    ).reduce((a,s) => a + s.monto, 0);
+    const saldoDisponible = saldoActual - otrasComprobsPendientes;
+    const restante = saldoDisponible - totalComp;
 
     // Persistir comprobación en Supabase
     if (window.sb) {
@@ -3368,15 +3397,12 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
           }))
         );
       }
-
-      // Actualizar saldo del anticipo padre en Supabase
-      if (anticipoSel) {
-        await window.sb.from("solicitudes").update({
-          saldo_pendiente: nuevoSaldo,
-          status: nuevoStatus,
-        }).eq("id", anticipoSel.id);
-      }
+      // NO actualizamos saldo_pendiente del anticipo padre aquí
+      // Se actualizará cuando tesorería libere la comprobación
     }
+
+    const nuevoSaldo = Math.max(0, restante);  // solo para UI local
+    const nuevoStatus = "parcial";  // marca que hay comprobaciones en proceso
 
     // Actualizar en memoria local
     const nueva = {
@@ -3776,7 +3802,184 @@ function NuevoReembolso({ setPage, userId }) {
   );
 }
 
-Object.assign(window, { UserDashboard, SolicitarAnticipo, NuevaComprobacion, Reembolsos, NuevoReembolso });
+function CierreAnticipo({ setPage, userId, anticipoId }) {
+  const [anticipo, setAnticipo] = React.useState(null);
+  const [file, setFile] = React.useState(null);
+  const [fileUrl, setFileUrl] = React.useState(null);
+  const [referencia, setReferencia] = React.useState("");
+  const [fechaDeposito, setFechaDeposito] = React.useState(new Date().toISOString().slice(0,10));
+  const [enviado, setEnviado] = React.useState(false);
+  const [toast, setToast] = React.useState(null);
+  const showToast = (msg, ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null),3000); };
+
+  React.useEffect(() => {
+    const ant = window.SOLICITUDES.find(s => s.id === anticipoId);
+    if (ant) setAnticipo(ant);
+  }, [anticipoId]);
+
+  const onFile = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setFile(f);
+    setFileUrl(URL.createObjectURL(f));
+  };
+
+  const handleCerrar = async () => {
+    if (!anticipo) return;
+    if (!file) { showToast("⚠ Sube el comprobante de depósito", false); return; }
+    if (!referencia.trim()) { showToast("⚠ Captura la referencia bancaria", false); return; }
+    if (enviado) return;
+
+    const saldo = anticipo.saldoPendiente || 0;
+    const id = "DEP-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-4);
+    const u = window.findUser(userId);
+
+    setEnviado(true);
+
+    // Subir archivo a Supabase Storage
+    let archivoUrl = null;
+    if (window.sb && file) {
+      const ext = file.name.split(".").pop();
+      const path = `cierres/${anticipoId}/${id}.${ext}`;
+      const { error: upErr } = await window.sb.storage.from("comprobantes").upload(path, file);
+      if (upErr) { showToast("Error subiendo archivo: "+upErr.message, false); setEnviado(false); return; }
+      const { data: { publicUrl } } = window.sb.storage.from("comprobantes").getPublicUrl(path);
+      archivoUrl = publicUrl;
+    }
+
+    // Crear solicitud tipo "deposito" en Supabase
+    if (window.sb) {
+      const { error } = await window.sb.from("solicitudes").insert({
+        id, tipo: "deposito",
+        concepto: `Reintegro de saldo · ${anticipoId}`,
+        usuario_id: userId, monto: saldo,
+        status: "solicitado",
+        anticipo_ref: anticipoId,
+        centro_id: u?.centro || null,
+        saldo_pendiente: 0,
+        notas: `Ref: ${referencia.trim()} · Fecha depósito: ${fechaDeposito}` + (archivoUrl ? ` · Comprobante: ${archivoUrl}` : ""),
+        fecha: new Date().toISOString(),
+      });
+      if (error) { showToast("Error: "+error.message, false); setEnviado(false); return; }
+    }
+
+    // Actualizar en memoria
+    window.SOLICITUDES.unshift({
+      id, tipo:"deposito",
+      concepto: `Reintegro de saldo · ${anticipoId}`,
+      usuario: userId, monto: saldo, fecha: new Date(),
+      status: "solicitado", anticipoRef: anticipoId,
+      saldoPendiente: 0,
+      notas: `Ref: ${referencia.trim()}`,
+      archivoUrl,
+    });
+
+    showToast("✓ Comprobante enviado. Pendiente de validación por tesorería");
+    setTimeout(() => setPage && setPage("dash"), 1600);
+  };
+
+  if (!anticipo) return <div style={{padding:24}}>Cargando…</div>;
+
+  return (
+    <>
+      {toast && <div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",
+        zIndex:999,background:toast.ok?"var(--success)":"var(--danger)",color:"#fff",
+        padding:"8px 20px",borderRadius:20,fontSize:13,fontWeight:500,
+        boxShadow:"0 4px 16px rgba(0,0,0,.3)",maxWidth:380,textAlign:"center"}}>{toast.msg}</div>}
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Cerrar anticipo</h1>
+          <div className="page-sub">Reintegra el saldo no comprobado con un depósito bancario</div>
+        </div>
+        <button className="btn ghost" onClick={()=>setPage&&setPage("comprobaciones")}>
+          <Icon name="x" size={14}/> Cancelar
+        </button>
+      </div>
+
+      <div className="card" style={{marginBottom:14}}>
+        <div className="card-head">
+          <h3 className="card-title">Resumen del anticipo</h3>
+        </div>
+        <div className="kpi-grid" style={{gridTemplateColumns:"repeat(3, 1fr)"}}>
+          <div className="kpi">
+            <div className="kpi-label">Folio</div>
+            <div className="kpi-value" style={{fontSize:18}}>{anticipo.id}</div>
+          </div>
+          <div className="kpi">
+            <div className="kpi-label">Monto original</div>
+            <div className="kpi-value">{window.fmtMXN(anticipo.monto)}</div>
+          </div>
+          <div className="kpi">
+            <div className="kpi-label">Saldo a reintegrar</div>
+            <div className="kpi-value" style={{color:"var(--warn)"}}>{window.fmtMXN(anticipo.saldoPendiente)}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="card" style={{marginBottom:14}}>
+        <div className="card-head">
+          <h3 className="card-title">Datos del depósito</h3>
+          <div className="card-sub">Captura los datos bancarios del reintegro</div>
+        </div>
+        <div className="form-grid cols-2" style={{gap:12}}>
+          <div className="field">
+            <label>Referencia bancaria</label>
+            <input className="input" value={referencia} onChange={e=>setReferencia(e.target.value)}
+              placeholder="No. de transferencia / referencia SPEI"/>
+          </div>
+          <div className="field">
+            <label>Fecha del depósito</label>
+            <input className="input" type="date" value={fechaDeposito} onChange={e=>setFechaDeposito(e.target.value)}/>
+          </div>
+        </div>
+      </div>
+
+      <div className="card" style={{marginBottom:14}}>
+        <div className="card-head">
+          <h3 className="card-title">Comprobante de depósito</h3>
+          <div className="card-sub">Adjunta el ticket, captura del banco o XML de pago</div>
+        </div>
+        <div style={{padding:16, border:"2px dashed var(--border)", borderRadius:8, textAlign:"center"}}>
+          {!file ? (
+            <>
+              <input type="file" id="file-deposito" style={{display:"none"}}
+                accept="image/*,application/pdf,.xml"
+                onChange={onFile}/>
+              <label htmlFor="file-deposito" className="btn ghost" style={{cursor:"pointer"}}>
+                <Icon name="upload" size={14}/> Subir comprobante
+              </label>
+              <div style={{fontSize:11, color:"var(--text-3)", marginTop:8}}>
+                JPG, PNG, PDF o XML
+              </div>
+            </>
+          ) : (
+            <div>
+              <div style={{display:"flex", alignItems:"center", gap:10, justifyContent:"center"}}>
+                <Icon name="check" size={16} style={{color:"var(--success)"}}/>
+                <span style={{fontSize:13}}>{file.name}</span>
+                <button className="icon-btn" onClick={()=>{setFile(null); setFileUrl(null);}}>
+                  <Icon name="x" size={12}/>
+                </button>
+              </div>
+              {fileUrl && file.type.startsWith("image/") && (
+                <img src={fileUrl} alt="preview" style={{maxWidth:"100%",maxHeight:200,marginTop:12,borderRadius:6}}/>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{display:"flex", justifyContent:"flex-end", gap:10}}>
+        <button className="btn ghost" onClick={()=>setPage&&setPage("comprobaciones")}>Cancelar</button>
+        <button className="btn primary" onClick={handleCerrar} disabled={enviado}>
+          <Icon name="check" size={14}/> {enviado?"Enviando…":"Enviar comprobante y cerrar"}
+        </button>
+      </div>
+    </>
+  );
+}
+
+Object.assign(window, { UserDashboard, SolicitarAnticipo, NuevaComprobacion, Reembolsos, NuevoReembolso, CierreAnticipo });
 
 // ═══ role-pages ═══
 // Viáticos — Gerente, Tesorería, Admin pages
@@ -9003,10 +9206,10 @@ const DEFAULT_PAGE = {
 // Páginas válidas por rol — cualquier página fuera de esta lista
 // cae al default en lugar de renderizar null (pantalla negra)
 const VALID_PAGES = {
-  usuario:  ["dash","anticipos","comprobaciones","reembolsos","nuevo-reembolso","perfil"],
-  gerente:  ["bandeja","equipo","historial","reportes","perfil","mis-solicitudes","anticipos","reembolsos","nuevo-reembolso","comprobaciones"],
+  usuario:  ["dash","anticipos","comprobaciones","reembolsos","nuevo-reembolso","cerrar-anticipo","perfil"],
+  gerente:  ["bandeja","equipo","historial","reportes","perfil","mis-solicitudes","anticipos","reembolsos","nuevo-reembolso","cerrar-anticipo","comprobaciones"],
   tesoreria:["liberacion","pagados","deudores","reportes","perfil"],
-  admin:    ["usuarios","centros","catalogo","reportes","ajustes","perfil","liberacion","pagados","deudores","polizas","bandeja","equipo","historial","dash","anticipos","comprobaciones","reembolsos","nuevo-reembolso","mis-solicitudes"],
+  admin:    ["usuarios","centros","catalogo","reportes","ajustes","perfil","liberacion","pagados","deudores","polizas","bandeja","equipo","historial","dash","anticipos","comprobaciones","reembolsos","nuevo-reembolso","cerrar-anticipo","mis-solicitudes"],
   contador: ["polizas","catalogo","perfil"],
 };
 
@@ -9020,6 +9223,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     if (page === "comprobaciones") return <NuevaComprobacion setPage={setPage} userId={userId}/>;
     if (page === "reembolsos")     return <Reembolsos userId={userId} setPage={setPage}/>;
     if (page === "nuevo-reembolso") return <NuevoReembolso setPage={setPage} userId={userId}/>;
+    if (page === "cerrar-anticipo") return <CierreAnticipo setPage={setPage} userId={userId} anticipoId={window.CIERRE_ANT_ID}/>;
     // fallback
     return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
   }
@@ -9033,6 +9237,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     if (page === "anticipos")        return <SolicitarAnticipo setPage={setPage} userId={userId}/>;
     if (page === "reembolsos")       return <Reembolsos userId={userId} setPage={setPage}/>;
     if (page === "nuevo-reembolso")  return <NuevoReembolso setPage={setPage} userId={userId}/>;
+    if (page === "cerrar-anticipo")  return <CierreAnticipo setPage={setPage} userId={userId} anticipoId={window.CIERRE_ANT_ID}/>;
     if (page === "comprobaciones")   return <NuevaComprobacion setPage={setPage} userId={userId}/>;
     return <GerenteBandeja openDetail={setDetailId} userId={userId} role={role}/>;
   }
