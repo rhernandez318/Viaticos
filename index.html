@@ -5199,6 +5199,7 @@ function Deudores({ role, userId }) {
 
   const [statusFiltro, setStatusFiltro] = React.useState(null);
   const [tipoFiltro,   setTipoFiltro]   = React.useState(null);
+  const [vistaFiltro,  setVistaFiltro] = React.useState("todos");
   const [, forceD] = React.useReducer(x=>x+1, 0);
 
   // Recargar desde Supabase al montar
@@ -5529,7 +5530,8 @@ function Reportes({ role, userId }) {
   const [centro,      setCentro]      = React.useState("todos");
   const [mesFiltro,   setMesFiltro]   = React.useState(null);
   const [statusFiltro,setStatusFiltro]= React.useState(null);
-  const [tipoFiltro,  setTipoFiltro]  = React.useState(null);
+  const [tipoFiltro,   setTipoFiltro]  = React.useState(null);
+  const [vistaFiltro,  setVistaFiltro] = React.useState("todos");
   const [, forceRep] = React.useReducer(x=>x+1, 0);
 
   React.useEffect(() => {
@@ -8590,12 +8592,15 @@ function MReportes({ role, userId }) {
   const [anio, setAnio] = React.useState("2026");
   const [centro, setCentro] = React.useState("todos");
   const [tab, setTab] = React.useState("kpi");
+  const [vistaFiltro, setVistaFiltro] = React.useState("todos");
 
   const data = window.SOLICITUDES.filter(s => {
     if (String(s.fecha.getFullYear()) !== anio) return false;
     const u = window.findUser(s.usuario);
     if (!u) return false;
     if (centro !== "todos" && u.centro !== centro) return false;
+    if (vistaFiltro === "flujo"  && s.tipo !== "anticipo") return false;
+    if (vistaFiltro === "gastos" && !["comprobacion","reembolso"].includes(s.tipo)) return false;
     return true;
   });
 
