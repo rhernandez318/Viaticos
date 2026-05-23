@@ -7416,7 +7416,7 @@ function MUserHome({ userId, push, setTab }) {
   const u = window.findUser(userId);
   const c = window.findCentro(u.centro);
   const mine = window.SOLICITUDES.filter(s => s.usuario === userId);
-  const saldo = mine.filter(s => s.tipo === "anticipo" && s.saldoPendiente > 0).reduce((a,s)=>a+s.saldoPendiente, 0);
+  const saldo = mine.filter(s => s.tipo === "anticipo" && ["liberado","parcial"].includes(s.status) && s.saldoPendiente > 0).reduce((a,s)=>a+s.saldoPendiente, 0);
   const activas = mine.filter(s => !["comprobado","rechazado"].includes(s.status));
   const enProceso = mine.filter(s => ["solicitado","autorizado"].includes(s.status)).length;
   return (
@@ -7623,7 +7623,7 @@ function MGerenteEquipo({ userId, push }) {
       <div style={{fontSize:11, textTransform:"uppercase", letterSpacing:"0.08em", color:"var(--text-3)", margin:"4px 4px 8px", fontWeight:600}}>Mi equipo ({team.length})</div>
       {team.map(u => {
         const c = window.findCentro(u.centro);
-        const saldo = window.SOLICITUDES.filter(s => s.usuario === u.id && s.tipo === "anticipo" && s.saldoPendiente > 0).reduce((a,s)=>a+s.saldoPendiente, 0);
+        const saldo = window.SOLICITUDES.filter(s => s.usuario === u.id && s.tipo === "anticipo" && ["liberado","parcial"].includes(s.status) && s.saldoPendiente > 0).reduce((a,s)=>a+s.saldoPendiente, 0);
         const pend = window.SOLICITUDES.filter(s => s.usuario === u.id && s.status === "solicitado").length;
         return (
           <div key={u.id} className="m-card" style={{display:"flex", alignItems:"center", gap:12}}>
@@ -8114,7 +8114,7 @@ function MAdminUsuarios() {
               options: window.CENTROS.map(c => ({ value:c.id, label:`${c.id} · ${c.nombre}` })) },
             { key:"gerente", label:"Reporta a", value:editing.gerente || "", full:true, type:"select",
               options: [{ value:"", label:"— ninguno —" },
-                ...users.filter(g => g.rol === "gerente").map(g => ({ value:g.id, label:g.nombre }))] },
+                ...users.filter(g => (g.rol === "gerente" || g.rol === "admin") && g.id !== editing.id).map(g => ({ value:g.id, label:g.nombre + " (" + g.rol + ")" }))] },
             { key:"password",
               label: editing._isNew ? "Contraseña inicial" : "Restablecer contraseña",
               value: editing._isNew ? "1234" : "",
@@ -8587,12 +8587,12 @@ function MReportes({ role, userId }) {
   });
 
   const totalGasto = data.filter(s=>s.status!=="rechazado").reduce((a,s) => a + s.monto, 0);
-  const totalDeudor = data.filter(s => s.tipo === "anticipo" && (s.saldoPendiente||0) > 0).reduce((a,s) => a + (s.saldoPendiente||0), 0);
+  const totalDeudor = data.filter(s => s.tipo === "anticipo" && ["liberado","parcial"].includes(s.status) && (s.saldoPendiente||0) > 0).reduce((a,s) => a + (s.saldoPendiente||0), 0);
   const totalPend = data.filter(s => ["solicitado","autorizado"].includes(s.status)).reduce((a,s) => a + s.monto, 0);
   const compRate = totalGasto > 0 ? Math.round((totalGasto - totalDeudor) / totalGasto * 100) : 100;
 
   // Antigüedad
-  const saldos = data.filter(s => s.tipo === "anticipo" && (s.saldoPendiente||0) > 0);
+  const saldos = data.filter(s => s.tipo === "anticipo" && ["liberado","parcial"].includes(s.status) && (s.saldoPendiente||0) > 0);
   const buckets = {"0-15":[],"16-30":[],"31-60":[],"60+":[]};
   saldos.forEach(s => {
     const d = Math.floor((window.HOY - s.fecha)/(1000*60*60*24));
