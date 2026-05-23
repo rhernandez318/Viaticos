@@ -5249,19 +5249,19 @@ function Deudores({ role, userId }) {
 
   // ── Por área ────────────────────────────────────────────────────────────
   const porCentro = {};
-  solicsFilt.filter(s=>s.status!=="rechazado").forEach(s => {
+  solicsFilt.filter(s=>["liberado","comprobado","parcial"].includes(s.status)).forEach(s => {
     const u=window.findUser(s.usuario); if(!u)return;
     const c=window.findCentro(u.centro);
     const k=c?c.nombre:u.centro;
     porCentro[k]=(porCentro[k]||0)+s.monto;
   });
   const centroMax = Math.max(...Object.values(porCentro),1);
-  const totalGasto = solicsFilt.filter(s=>s.status!=="rechazado").reduce((a,s)=>a+s.monto,0);
+  const totalGasto = solicsFilt.filter(s=>["liberado","comprobado","parcial"].includes(s.status)).reduce((a,s)=>a+s.monto,0);
 
   // ── Gasto mensual ───────────────────────────────────────────────────────
   const meses=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
   const gastoMensual=Array(12).fill(0);
-  solicsFilt.filter(s=>s.status!=="rechazado").forEach(s=>{ gastoMensual[s.fecha.getMonth()]+=s.monto; });
+  solicsFilt.filter(s=>["liberado","comprobado","parcial"].includes(s.status)).forEach(s=>{ gastoMensual[s.fecha.getMonth()]+=s.monto; });
   const mesMax=Math.max(...gastoMensual,1);
   const BAR_H=160;
 
@@ -5551,7 +5551,7 @@ function Reportes({ role, userId }) {
     (!tipoFiltro   || s.tipo   === tipoFiltro)
   ), [solicsFilt, statusFiltro, tipoFiltro]);
 
-  const totalGasto    = solicsFilt.filter(s=>s.status!=="rechazado").reduce((a,s)=>a+s.monto,0);
+  const totalGasto    = solicsFilt.filter(s=>["liberado","comprobado","parcial"].includes(s.status)).reduce((a,s)=>a+s.monto,0);
   const totalLiberado = solicsFilt.filter(s=>["liberado","comprobado"].includes(s.status)).reduce((a,s)=>a+s.monto,0);
   const totalDeudor   = solicsFilt.filter(s=>s.tipo==="anticipo"&&["liberado","parcial"].includes(s.status)&&(s.saldoPendiente||0)>0).reduce((a,s)=>a+(s.saldoPendiente||0),0);
   const totalPend     = solicsFilt.filter(s=>["solicitado","autorizado"].includes(s.status)).reduce((a,s)=>a+s.monto,0);
@@ -5561,7 +5561,7 @@ function Reportes({ role, userId }) {
 
   // Por cuenta contable (tipo de gasto)
   const porTipoGasto = {};
-  solicsFilt.filter(s=>s.status!=="rechazado").forEach(s => {
+  solicsFilt.filter(s=>["liberado","comprobado","parcial"].includes(s.status)).forEach(s => {
     const items = s.cfdi&&s.cfdi.length>0 ? s.cfdi
       : s.items&&s.items.length>0 ? s.items.map(i=>({cuenta:i.cuenta,total:i.monto||0}))
       : [{cuenta:"6121200001",total:s.monto}];
@@ -5576,7 +5576,7 @@ function Reportes({ role, userId }) {
 
   // Por centro de beneficio
   const porCentro = {};
-  solicsFilt.filter(s=>s.status!=="rechazado").forEach(s => {
+  solicsFilt.filter(s=>["liberado","comprobado","parcial"].includes(s.status)).forEach(s => {
     const u=window.findUser(s.usuario);if(!u)return;
     const c=window.findCentro(u.centro);
     const k=c?c.nombre:u.centro;
@@ -7523,14 +7523,18 @@ function MUserList({ userId, push }) {
 // ───────────────────────── Gerente ─────────────────────────
 
 function MGerenteBandeja({ userId, push, showSnack }) {
+  const me = window.findUser(userId);
+  const esAdmin = me && me.rol === "admin";
   const [, forceMGB] = React.useReducer(x=>x+1, 0);
   React.useEffect(() => {
     if (!window.sb) return;
-    const teamIds = window.USUARIOS.filter(u => u.gerente === userId).map(u => u.id);
-    if (!teamIds.length) return;
-    window.sb.from("solicitudes").select("*")
-      .in("usuario_id", teamIds).eq("status","solicitado")
-      .order("fecha",{ascending:false})
+    let query = window.sb.from("solicitudes").select("*").eq("status","solicitado");
+    if (!esAdmin) {
+      const teamIds = window.USUARIOS.filter(u => u.gerente === userId).map(u => u.id);
+      if (!teamIds.length) return;
+      query = query.in("usuario_id", teamIds);
+    }
+    query.order("fecha",{ascending:false})
       .then(({data})=>{
         if (!data) return;
         data.forEach(s=>{
@@ -7545,7 +7549,7 @@ function MGerenteBandeja({ userId, push, showSnack }) {
       });
   }, [userId]);
   const teamIds = window.USUARIOS.filter(u => u.gerente === userId).map(u => u.id);
-  const all = window.SOLICITUDES.filter(s => s.status === "solicitado" && teamIds.includes(s.usuario));
+  const all = window.SOLICITUDES.filter(s => s.status === "solicitado" && (esAdmin || teamIds.includes(s.usuario)));
   const [, force] = React.useReducer(x => x + 1, 0);
   const aprobar = async (s) => {
     if (window.sb) {
@@ -8586,7 +8590,7 @@ function MReportes({ role, userId }) {
     return true;
   });
 
-  const totalGasto = data.filter(s=>s.status!=="rechazado").reduce((a,s) => a + s.monto, 0);
+  const totalGasto = data.filter(s=>["liberado","comprobado","parcial"].includes(s.status)).reduce((a,s) => a + s.monto, 0);
   const totalDeudor = data.filter(s => s.tipo === "anticipo" && ["liberado","parcial"].includes(s.status) && (s.saldoPendiente||0) > 0).reduce((a,s) => a + (s.saldoPendiente||0), 0);
   const totalPend = data.filter(s => ["solicitado","autorizado"].includes(s.status)).reduce((a,s) => a + s.monto, 0);
   const compRate = totalGasto > 0 ? Math.round((totalGasto - totalDeudor) / totalGasto * 100) : 100;
@@ -8609,9 +8613,9 @@ function MReportes({ role, userId }) {
   const topDeu = Object.entries(grouped).sort((a,b) => b[1] - a[1]).slice(0, 5)
     .map(([uid, m]) => ({ u: window.findUser(uid), monto: m }));
 
-  // Por centro
+  // Por centro (solo dinero efectivamente liberado)
   const porCentro = {};
-  data.forEach(s => {
+  data.filter(s => ["liberado","comprobado","parcial"].includes(s.status)).forEach(s => {
     const u = window.findUser(s.usuario); if (!u) return;
     const c = window.findCentro(u.centro); if (!c) return;
     porCentro[c.nombre] = (porCentro[c.nombre] || 0) + s.monto;
@@ -8621,7 +8625,7 @@ function MReportes({ role, userId }) {
 
   // Por tipo de gasto (cuenta contable)
   const porTipo = {};
-  data.forEach(s => {
+  data.filter(s => ["liberado","comprobado","parcial"].includes(s.status)).forEach(s => {
     const items = s.cfdi && s.cfdi.length > 0 ? s.cfdi
       : s.items && s.items.length > 0 ? s.items.map(i => ({cuenta:i.cuenta, total:i.monto||0}))
       : [{cuenta:"6121200001", total:s.monto}];
@@ -8985,8 +8989,8 @@ const M_TABS = {
   ],
   admin: [
     {id:"home", label:"Inicio", icon:"dashboard"},
+    {id:"bandeja", label:"Aprobar", icon:"inbox"},
     {id:"usuarios", label:"Usuarios", icon:"users"},
-    {id:"centros", label:"Centros", icon:"home"},
     {id:"reportes", label:"Reportes", icon:"chart"},
     {id:"profile", label:"Perfil", icon:"settings"},
   ],
@@ -9067,6 +9071,7 @@ function MobileApp({ userId, role, onLogout, setPage, openDetail }) {
       if (tab === "profile")  { headerTitle = "Mi perfil"; body = <MProfile userId={userId} onLogout={onLogout}/>; }
     } else if (role === "admin") {
       if (tab === "home")     body = <MAdminHome push={push} goToPage={goToPage} setTab={setTab}/>;
+      if (tab === "bandeja")  { headerTitle = "Aprobaciones"; body = <MGerenteBandeja userId={userId} push={push} showSnack={showSnack}/>; }
       if (tab === "usuarios") { headerTitle = "Usuarios"; body = <MAdminUsuarios/>; }
       if (tab === "centros")  { headerTitle = "Centros"; body = <MAdminCentros/>; }
       if (tab === "reportes") { body = <MReportes role={role} userId={userId}/>; }
