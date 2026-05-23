@@ -1528,13 +1528,9 @@ function calcSaldo(anticipoId) {
       && s.anticipoRef === anticipoId
       && ["liberado","comprobado"].includes(s.status))
     .reduce((a, s) => a + (s.monto || 0), 0);
-  // Restar también depósitos de cierre (reintegros)
-  const depositado = SOLICITUDES
-    .filter(s => s.tipo === "deposito"
-      && s.anticipoRef === anticipoId
-      && ["liberado","comprobado"].includes(s.status))
-    .reduce((a, s) => a + (s.monto || 0), 0);
-  ant.saldoPendiente = Math.max(0, Math.round((ant.monto - comprobado - depositado) * 100) / 100);
+  // Cierres (depósitos de reintegro) — comprobaciones especiales marcadas con CIERRE_DEPOSITO
+  // Ya están incluidas en "comprobado" arriba, no hay que sumarlas dos veces
+  ant.saldoPendiente = Math.max(0, Math.round((ant.monto - comprobado) * 100) / 100);
   if (ant.saldoPendiente <= 0) ant.status = "comprobado";
   else if (ant.saldoPendiente < ant.monto) ant.status = "parcial";
 }
@@ -3501,7 +3497,7 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
                 </thead>
                 <tbody>
                   {items.map(c => {
-                    const cuenta = window.findCuenta(c.cuenta);
+                    const cuenta = window.findCuenta(c.cuenta) || { cuenta: c.cuenta || "—", nombre: "Sin clasificar", grupo: "—" };
                     const editing = editId === c.id;
                     if (editing) {
                       return (
@@ -3850,14 +3846,14 @@ function CierreAnticipo({ setPage, userId, anticipoId }) {
     // Crear solicitud tipo "deposito" en Supabase
     if (window.sb) {
       const { error } = await window.sb.from("solicitudes").insert({
-        id, tipo: "deposito",
-        concepto: `Reintegro de saldo · ${anticipoId}`,
+        id, tipo: "comprobacion",
+        concepto: `[CIERRE] Reintegro de saldo · ${anticipoId}`,
         usuario_id: userId, monto: saldo,
         status: "solicitado",
         anticipo_ref: anticipoId,
         centro_id: u?.centro || null,
         saldo_pendiente: 0,
-        notas: `Ref: ${referencia.trim()} · Fecha depósito: ${fechaDeposito}` + (archivoUrl ? ` · Comprobante: ${archivoUrl}` : ""),
+        notas: `CIERRE_DEPOSITO · Ref: ${referencia.trim()} · Fecha: ${fechaDeposito}` + (archivoUrl ? ` · URL: ${archivoUrl}` : ""),
         fecha: new Date().toISOString(),
       });
       if (error) { showToast("Error: "+error.message, false); setEnviado(false); return; }
@@ -3865,13 +3861,14 @@ function CierreAnticipo({ setPage, userId, anticipoId }) {
 
     // Actualizar en memoria
     window.SOLICITUDES.unshift({
-      id, tipo:"deposito",
-      concepto: `Reintegro de saldo · ${anticipoId}`,
+      id, tipo:"comprobacion",
+      concepto: `[CIERRE] Reintegro de saldo · ${anticipoId}`,
       usuario: userId, monto: saldo, fecha: new Date(),
       status: "solicitado", anticipoRef: anticipoId,
       saldoPendiente: 0,
-      notas: `Ref: ${referencia.trim()}`,
+      notas: `CIERRE_DEPOSITO · Ref: ${referencia.trim()}`,
       archivoUrl,
+      esCierre: true,
     });
 
     showToast("✓ Comprobante enviado. Pendiente de validación por tesorería");
@@ -5213,13 +5210,14 @@ function Deudores({ role, userId }) {
   const solicsFilt = React.useMemo(() => window.SOLICITUDES.filter(s => {
     const u = window.findUser(s.usuario);
     if (!u) return false;
-    // Restricción de equipo para gerentes que no son de Administración
     if (teamIds && !teamIds.includes(s.usuario)) return false;
     if (String(s.fecha.getFullYear()) !== anio) return false;
     if (centro !== "todos" && u.centro !== centro) return false;
     if (mesFiltro !== null && s.fecha.getMonth() !== mesFiltro) return false;
+    if (vistaFiltro === "flujo"  && s.tipo !== "anticipo") return false;
+    if (vistaFiltro === "gastos" && !["comprobacion","reembolso"].includes(s.tipo)) return false;
     return true;
-  }), [anio, centro, mesFiltro, teamIds]);
+  }), [anio, centro, mesFiltro, teamIds, vistaFiltro]);
 
   // Sub-filtrado para la lista detallada (status y tipo no afectan KPIs ni gráficas)
   const solicsFiltradas = React.useMemo(() => solicsFilt.filter(s =>
@@ -5295,6 +5293,11 @@ function Deudores({ role, userId }) {
           <div className="page-sub">Antigüedad de saldos · anticipos sin comprobar</div>
         </div>
         <div className="row">
+          <select className="select" value={vistaFiltro} onChange={e=>setVistaFiltro(e.target.value)}>
+            <option value="todos">Todos</option>
+            <option value="flujo">Flujo (anticipos)</option>
+            <option value="gastos">Gastos (comprobaciones + reembolsos)</option>
+          </select>
           <select className="select" value={anio} onChange={e=>{setAnio(e.target.value);}}>
             {AÑOS.map(a=><option key={a} value={a}>{a}</option>)}
           </select>
@@ -5537,13 +5540,14 @@ function Reportes({ role, userId }) {
   const solicsFilt = React.useMemo(() => window.SOLICITUDES.filter(s => {
     const u = window.findUser(s.usuario);
     if (!u) return false;
-    // Restricción de equipo para gerentes que no son de Administración
     if (teamIds && !teamIds.includes(s.usuario)) return false;
     if (String(s.fecha.getFullYear()) !== anio) return false;
     if (centro !== "todos" && u.centro !== centro) return false;
     if (mesFiltro !== null && s.fecha.getMonth() !== mesFiltro) return false;
+    if (vistaFiltro === "flujo"  && s.tipo !== "anticipo") return false;
+    if (vistaFiltro === "gastos" && !["comprobacion","reembolso"].includes(s.tipo)) return false;
     return true;
-  }), [anio, centro, mesFiltro, teamIds]);
+  }), [anio, centro, mesFiltro, teamIds, vistaFiltro]);
 
   // Sub-filtrado para la lista detallada (status y tipo no afectan KPIs ni gráficas)
   const solicsFiltradas = React.useMemo(() => solicsFilt.filter(s =>
@@ -5614,6 +5618,11 @@ function Reportes({ role, userId }) {
           <div className="page-sub">KPIs · distribución de gasto · tendencia mensual</div>
         </div>
         <div className="row">
+          <select className="select" value={vistaFiltro} onChange={e=>setVistaFiltro(e.target.value)}>
+            <option value="todos">Todos</option>
+            <option value="flujo">Flujo (anticipos)</option>
+            <option value="gastos">Gastos (comprobaciones + reembolsos)</option>
+          </select>
           <select className="select" value={anio} onChange={e=>setAnio(e.target.value)}>
             {AÑOS.map(a=><option key={a} value={a}>{a}</option>)}
           </select>
@@ -8659,6 +8668,13 @@ function MReportes({ role, userId }) {
       <div style={{paddingTop:4, marginBottom:14}}>
         <div style={{fontSize:11, color:"var(--text-3)", textTransform:"uppercase", letterSpacing:"0.06em"}}>{role === "admin" ? "Admin" : "Tesorería"}</div>
         <div style={{fontFamily:"var(--f-display)", fontSize:22, fontWeight:600, letterSpacing:"-0.02em"}}>Reportes</div>
+      </div>
+      <div style={{display:"flex", gap:8, marginBottom:8, flexWrap:"wrap"}}>
+        <select className="select" style={{flex:"1 1 100%", fontSize:12, padding:"7px 10px"}} value={vistaFiltro} onChange={e => setVistaFiltro(e.target.value)}>
+          <option value="todos">Todos</option>
+          <option value="flujo">Flujo (anticipos)</option>
+          <option value="gastos">Gastos (comp. + reemb.)</option>
+        </select>
       </div>
       <div style={{display:"flex", gap:8, marginBottom:12}}>
         <select className="select" style={{flex:1, fontSize:12.5, padding:"7px 10px"}} value={anio} onChange={e => setAnio(e.target.value)}>
