@@ -5587,7 +5587,7 @@ function Reportes({ role, userId }) {
   // Gasto mensual (últimos 6 meses del año seleccionado)
   const meses=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
   const gastoMensual = Array(12).fill(0);
-  solicsFilt.forEach(s => { gastoMensual[s.fecha.getMonth()] += s.monto; });
+  solicsFilt.filter(s=>["liberado","comprobado","parcial"].includes(s.status)).forEach(s => { gastoMensual[s.fecha.getMonth()] += s.monto; });
   const mesMax = Math.max(...gastoMensual,1);
 
   // Status breakdown
@@ -8641,7 +8641,7 @@ function MReportes({ role, userId }) {
   // Gasto mensual
   const meses = ["E","F","M","A","M","J","J","A","S","O","N","D"];
   const mensual = Array(12).fill(0);
-  data.forEach(s => { mensual[s.fecha.getMonth()] += s.monto; });
+  data.filter(s=>["liberado","comprobado","parcial"].includes(s.status)).forEach(s => { mensual[s.fecha.getMonth()] += s.monto; });
   const mesMax = Math.max(...mensual, 1);
 
   // Status
