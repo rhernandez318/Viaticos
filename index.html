@@ -3049,25 +3049,65 @@ function SolicitarAnticipo({ setPage, userId }) {
   );
 }
 
-function CompUploader({ onAdd }) {
+function CompUploader({ onAdd, solicitudId }) {
   const [files, setFiles] = React.useState([]);
   const [drag, setDrag] = React.useState(false);
   const inputRef = React.useRef(null);
 
-  const processFiles = (fileList) => {
-    Array.from(fileList).forEach(file => {
-      if (!file.name.endsWith(".xml") && !file.name.endsWith(".XML")) return;
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const parsed = parseCFDI(e.target.result);
-        if (parsed) {
-          const item = { ...parsed, id: parsed.uuidFull || (parsed.uuid + "-" + Date.now()) || ("item-" + Date.now()), file };
-          setFiles(prev => [...prev, item]);
-          if (onAdd) onAdd([item]);
+  const processFiles = async (fileList) => {
+    const filesArr = Array.from(fileList);
+    for (const file of filesArr) {
+      const isXml = file.name.toLowerCase().endsWith(".xml");
+      const isPdf = file.name.toLowerCase().endsWith(".pdf");
+      const isImg = file.type.startsWith("image/");
+      if (!isXml && !isPdf && !isImg) continue;
+
+      // Upload file to Supabase Storage
+      let archivoUrl = null;
+      if (window.sb) {
+        const ext = file.name.split(".").pop();
+        const uid = (solicitudId || "tmp") + "-" + Date.now();
+        const path = `comprobantes/${uid}.${ext}`;
+        const { error: upErr } = await window.sb.storage.from("comprobantes").upload(path, file, { upsert: true });
+        if (!upErr) {
+          const { data: { publicUrl } } = window.sb.storage.from("comprobantes").getPublicUrl(path);
+          archivoUrl = publicUrl;
+        } else {
+          console.warn("Storage upload error:", upErr.message);
         }
-      };
-      reader.readAsText(file);
-    });
+      }
+
+      if (isXml) {
+        // Parse XML and create item with URL
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const parsed = parseCFDI(e.target.result);
+          if (parsed) {
+            const item = {
+              ...parsed,
+              id: parsed.uuidFull || (parsed.uuid + "-" + Date.now()) || ("item-" + Date.now()),
+              file,
+              archivo_url: archivoUrl,
+            };
+            setFiles(prev => [...prev, item]);
+            if (onAdd) onAdd([item]);
+          }
+        };
+        reader.readAsText(file);
+      } else {
+        // PDF o imagen: crear item genérico sin datos de CFDI
+        const item = {
+          id: "file-" + Date.now() + "-" + Math.random().toString(36).slice(2),
+          uuid: "", uuidFull: "", emisor: "", concepto: file.name,
+          subtotal: 0, iva: 0, total: 0,
+          cuenta: "6121200001", confianza: 0.5,
+          file, archivo_url: archivoUrl,
+          esPdf: isPdf || isImg,
+        };
+        setFiles(prev => [...prev, item]);
+        if (onAdd) onAdd([item]);
+      }
+    }
   };
 
   const onDrop = (e) => {
@@ -3393,6 +3433,7 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
             emisor: it.emisor, concepto: it.concepto,
             subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
             cuenta: it.cuenta, confianza: it.confianza||0.9,
+            archivo_url: it.archivo_url || null,
           }))
         );
       }
@@ -3471,7 +3512,7 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
         <div>
           <div className="card" style={{marginBottom:14}}>
             <h3 className="card-title" style={{marginBottom:14}}>Sube tus comprobantes</h3>
-            <CompUploader onAdd={(newItems) => { setItems(prev => [...prev, ...newItems]); showToast(`✓ ${newItems.length} archivo${newItems.length>1?"s":""} procesado${newItems.length>1?"s":""}`); }}/>
+            <CompUploader solicitudId={anticipoSel ? anticipoSel.id : "cmp"} onAdd={(newItems) => { setItems(prev => [...prev, ...newItems]); showToast(`✓ ${newItems.length} archivo${newItems.length>1?"s":""} procesado${newItems.length>1?"s":""}`); }}/>
           </div>
 
           <div className="card">
@@ -7141,16 +7182,30 @@ function MobileScan({ userId, onDone }) {
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
-  const handleFile = (e) => {
+  const uploadToStorage = async (file, prefix) => {
+    if (!window.sb) return null;
+    try {
+      const ext = file.name.split(".").pop().toLowerCase();
+      const path = `comprobantes/${prefix}-${Date.now()}.${ext}`;
+      const { error } = await window.sb.storage.from("comprobantes").upload(path, file, { upsert: true });
+      if (error) { console.warn("Storage:", error.message); return null; }
+      const { data: { publicUrl } } = window.sb.storage.from("comprobantes").getPublicUrl(path);
+      return publicUrl;
+    } catch(e) { console.warn("Storage error:", e); return null; }
+  };
+
+  const handleFile = async (e) => {
     const files = Array.from(e.target.files || []);
-    files.forEach(file => {
+    for (const file of files) {
       if (!file.name.toLowerCase().endsWith(".xml")) {
-        // Non-XML: add as plain attachment
+        // Non-XML (PDF/imagen): upload and add as attachment
+        const archivoUrl = await uploadToStorage(file, "adj");
         setFacturas(prev => [...prev, {
           nombre: file.name, emisor: file.name, concepto: file.name,
-          total: 0, cuenta: "6121200001", confianza: 0, isCFDI: false
+          total: 0, cuenta: "6121200001", confianza: 0, isCFDI: false,
+          archivo_url: archivoUrl,
         }]);
-        return;
+        continue;
       }
       const reader = new FileReader();
       reader.onload = (ev) => {
@@ -7203,16 +7258,21 @@ function MobileScan({ userId, onDone }) {
           else if (/(hertz|sixt|avis|alamo|renta de auto|renta vehicular)/.test(text)) { cuenta="6122900006"; confianza=0.94; }
 
           const meta = window.findCuenta(cuenta) || { nombre: cuenta };
-          setFacturas(prev => [...prev, {
-            nombre: file.name, uuid: uuid.slice(0,18)+(uuid.length>18?"…":""),
-            emisor, concepto: conceptoStr, subtotal: Math.round(subtotal*100)/100,
-            iva: Math.round(iva*100)/100, total: Math.round(total*100)/100,
-            cuenta, nombreCuenta: meta.nombre, confianza, isCFDI: true,
-          }]);
+          // Upload XML to storage for future retrieval
+          uploadToStorage(file, uuid.slice(0,8)||"xml").then(archivoUrl => {
+            setFacturas(prev => [...prev, {
+              nombre: file.name, uuid: uuid.slice(0,18)+(uuid.length>18?"…":""),
+              uuidFull: uuid,
+              emisor, concepto: conceptoStr, subtotal: Math.round(subtotal*100)/100,
+              iva: Math.round(iva*100)/100, total: Math.round(total*100)/100,
+              cuenta, nombreCuenta: meta.nombre, confianza, isCFDI: true,
+              archivo_url: archivoUrl,
+            }]);
+          });
         } catch(err) { showToast("Error al leer: " + file.name); }
       };
       reader.readAsText(file, "utf-8");
-    });
+    }
     e.target.value = "";
   };
 
@@ -7242,6 +7302,7 @@ function MobileScan({ userId, onDone }) {
             emisor: it.emisor, concepto: it.concepto,
             subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
             cuenta: it.cuenta, confianza: it.confianza||0.9,
+            archivo_url: it.archivo_url || null,
           }))
         );
       }
@@ -8527,6 +8588,7 @@ function MNuevaComprobacion({ userId, onDone, showSnack }) {
             emisor: it.emisor, concepto: it.concepto,
             subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
             cuenta: it.cuenta, confianza: it.confianza||0.9,
+            archivo_url: it.archivo_url || null,
           }))
         );
       }
