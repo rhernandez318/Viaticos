@@ -3181,12 +3181,14 @@ function CompUploader({ onAdd, solicitudId }) {
         const ext = file.name.split(".").pop();
         const uid = (solicitudId || "tmp") + "-" + Date.now();
         const path = `comprobantes/${uid}.${ext}`;
+        console.log("Uploading to Storage:", path, file.type, file.size);
         const { error: upErr } = await window.sb.storage.from("comprobantes").upload(path, file, { upsert: true });
         if (!upErr) {
           const { data: { publicUrl } } = window.sb.storage.from("comprobantes").getPublicUrl(path);
           archivoUrl = publicUrl;
+          console.log("Upload OK:", publicUrl);
         } else {
-          console.warn("Storage upload error:", upErr.message);
+          console.error("Storage upload error:", upErr.message, upErr.statusCode, upErr);
         }
       }
 
@@ -4155,8 +4157,13 @@ function CierreAnticipo({ setPage, userId, anticipoId }) {
     if (window.sb && file) {
       const ext = file.name.split(".").pop();
       const path = `cierres/${anticipoId}/${id}.${ext}`;
+      console.log("CierreAnticipo upload:", path, file.type, file.size);
       const { error: upErr } = await window.sb.storage.from("comprobantes").upload(path, file);
-      if (upErr) { showToast("Error subiendo archivo: "+upErr.message, false); setEnviado(false); return; }
+      if (upErr) {
+        console.error("Cierre upload error:", upErr.message, upErr.statusCode, upErr);
+        showToast("Error subiendo archivo: "+upErr.message, false); setEnviado(false); return;
+      }
+      console.log("Cierre upload OK");
       const { data: { publicUrl } } = window.sb.storage.from("comprobantes").getPublicUrl(path);
       archivoUrl = publicUrl;
     }
