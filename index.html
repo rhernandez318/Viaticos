@@ -1585,11 +1585,50 @@ function generarPolizaLiquidacion(comprobacion) {
   return { anticipoId: ant.id, comprobacionId: comprobacion.id, usuario: u.nombre, fecha: comprobacion.fecha, totalComp, totalAnt: ant.monto, diff, lineas };
 }
 
+// ── Bitácora activa ─────────────────────────────────────────────────────────
+async function insertBitacora(solicitudId, accion, usuarioId, detalle) {
+  if (!window.sb) return;
+  try {
+    await window.sb.from("bitacora").insert({
+      solicitud_id: solicitudId,
+      accion,
+      usuario_id: usuarioId,
+      detalle: detalle || null,
+      ts: new Date().toISOString(),
+    });
+  } catch(e) { console.warn("bitacora:", e.message); }
+}
+
+// ── Reglas de validación configurables ─────────────────────────────────────
+const REGLAS = {
+  montoMaxAnticipo:  50000,
+  montoMaxReembolso: 15000,
+  diasMaxViaje:      30,
+  cuentasPermitidas: [],
+};
+
+async function loadReglas() {
+  if (!window.sb) return;
+  try {
+    const { data } = await window.sb.from("ajustes").select("clave,valor");
+    if (!data) return;
+    data.forEach(r => {
+      try {
+        if (r.clave === "montoMaxAnticipo")  REGLAS.montoMaxAnticipo  = parseFloat(r.valor)||50000;
+        if (r.clave === "montoMaxReembolso") REGLAS.montoMaxReembolso = parseFloat(r.valor)||15000;
+        if (r.clave === "diasMaxViaje")      REGLAS.diasMaxViaje      = parseInt(r.valor)||30;
+        if (r.clave === "cuentasPermitidas") REGLAS.cuentasPermitidas = JSON.parse(r.valor)||[];
+      } catch(e) {}
+    });
+  } catch(e) { console.warn("loadReglas:", e.message); }
+}
+
 Object.assign(window, {
   CENTROS, CATALOGO_GASTOS, USUARIOS, SOLICITUDES, COMPROBANTES_DEMO,
   HOY, diasAtras, fmtFecha, fmtMXN, findUser, findCentro, findCuenta,
   findUserByEmail, checkPassword, generateToken, verifyToken,
   calcSaldo, generarPolizaLiquidacion, getBancosAccount,
+  insertBitacora, REGLAS, loadReglas,
 });
 
 // ═══ icons ═══
@@ -2216,6 +2255,8 @@ const NAV = {
     { id: "catalogo",  label: "Catálogo de gastos", icon: "book" },
     { id: "reportes",  label: "Reportes",           icon: "chart" },
     { id: "ajustes",   label: "Ajustes",            icon: "settings" },
+    { id: "metricas",  label: "Métricas",           icon: "chart" },
+    { id: "ajustes-sistema", label: "Reglas",        icon: "flag" },
   ],
   contador: [
     { id: "polizas",   label: "Pólizas contables",  icon: "book" },
@@ -2353,6 +2394,38 @@ function generarNotificaciones(role, userId) {
       }
     });
 
+    // ── 1b. Anticipos recién liberados (dispersados por tesorería) ───────────
+    mias.filter(s =>
+      s.tipo === "anticipo" && s.status === "liberado" &&
+      s.updatedAt && (hoy - s.updatedAt) < 3 * 86400000  // últimos 3 días
+    ).forEach(s => {
+      msgs.push({
+        id:     "liberado_" + s.id,
+        tipo:   "success",
+        icon:   "check",
+        titulo: `Anticipo dispersado`,
+        texto:  `${s.id} · ${window.fmtMXN(s.monto)} depositados en tu cuenta — recuerda comprobar antes de ${new Date(s.fecha.getTime()+15*86400000).toLocaleDateString("es-MX")}`,
+        folio:  s.id,
+        ts:     s.updatedAt || s.fecha,
+      });
+    });
+
+    // ── 1c. Reembolsos liberados (dinero de vuelta) ───────────────────────
+    mias.filter(s =>
+      s.tipo === "reembolso" && s.status === "liberado" &&
+      s.updatedAt && (hoy - s.updatedAt) < 3 * 86400000
+    ).forEach(s => {
+      msgs.push({
+        id:     "reembolso_ok_" + s.id,
+        tipo:   "success",
+        icon:   "check",
+        titulo: `Reembolso aprobado`,
+        texto:  `${s.id} · ${window.fmtMXN(s.monto)} serán depositados según el ciclo de pago`,
+        folio:  s.id,
+        ts:     s.updatedAt || s.fecha,
+      });
+    });
+
     // ── 2. Solicitudes rechazadas sin revisar ─────────────────────────────
     mias.filter(s => s.status === "rechazado").forEach(s => {
       msgs.push({
@@ -2477,6 +2550,7 @@ function NotifPanel({ role, userId, onClose, onNavigate, leidas, setLeidas }) {
   const colores = {
     danger: { bg:"rgba(226,75,74,.12)", border:"rgba(226,75,74,.4)", text:"#e24b4a", dot:"#e24b4a" },
     warn:   { bg:"rgba(239,159,39,.12)", border:"rgba(239,159,39,.4)", text:"#ef9f27", dot:"#ef9f27" },
+    success:{ bg:"rgba(34,197,94,.12)",  border:"rgba(34,197,94,.4)",  text:"#16a34a", dot:"#16a34a" },
     info:   { bg:"rgba(55,138,221,.10)", border:"rgba(55,138,221,.3)", text:"#378ADD", dot:"#378ADD" },
   };
 
@@ -2779,6 +2853,7 @@ function UserDashboard({ userId, openDetail, setPage }) {
           <button className="btn" onClick={() => setPage("reembolsos")}><Icon name="refund" size={14}/> Reembolso</button>
           <button className="btn" onClick={() => setPage("comprobaciones")}><Icon name="receipt" size={14}/> Comprobar</button>
           <button className="btn primary" onClick={() => setPage("anticipos")}><Icon name="plus" size={14}/> Solicitar anticipo</button>
+          <button className="btn ghost" onClick={() => setPage("mis-solicitudes")}><Icon name="list" size={14}/> Mis solicitudes</button>
         </div>
       </div>
 
@@ -2908,12 +2983,13 @@ function UserDashboard({ userId, openDetail, setPage }) {
 
 function SolicitarAnticipo({ setPage, userId }) {
   const [toast, setToast] = React.useState(null);
-  const [form, setForm] = React.useState({
-    concepto: "Visita comercial Monterrey - 3 días",
+  const _borrInit = (() => { try { return JSON.parse(localStorage.getItem("viaticos_borrador_ant_" + userId) || "null"); } catch{ return null; } })();
+  const [form, setForm] = React.useState(_borrInit?.form || {
+    concepto: "",
     centro: window.CENTROS[0]?.id || "",
-    salida: "14 may 2026",
-    regreso: "16 may 2026",
-    destino: "Monterrey, NL",
+    salida: "",
+    regreso: "",
+    destino: "",
     monto: "8,500.00",
     notas: "Reuniones con cliente Aceros del Norte. Hospedaje 2 noches y vuelo redondo.",
   });
@@ -2932,10 +3008,33 @@ function SolicitarAnticipo({ setPage, userId }) {
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
   window.BORRADORES = window.BORRADORES || [];
 
+  // ── Auto-borrador en localStorage ────────────────────────────────────────
+  const BORR_KEY = "viaticos_borrador_ant_" + userId;
+  const limpiarBorrador = React.useCallback(() => {
+    try { localStorage.removeItem(BORR_KEY); } catch(e) {}
+  }, [userId]);
+
+  // Guardar cada vez que cambia form o desglose
+  React.useEffect(() => {
+    if (!form.concepto && !form.destino) return;
+    try { localStorage.setItem(BORR_KEY, JSON.stringify({ form, desglose, ts: Date.now() })); } catch(e) {}
+  }, [form, desglose]);
+
   const handleEnviar = async () => {
     if (!form.concepto.trim()) { showToast("⚠ Escribe un concepto para continuar"); return; }
     if (!form.destino.trim())  { showToast("⚠ Indica el destino del viaje"); return; }
     if (totalDesg <= 0)        { showToast("⚠ Agrega al menos un concepto con monto"); return; }
+    // ── Validaciones configurables ──
+    const reglas = window.REGLAS || {};
+    if (reglas.montoMaxAnticipo && totalDesg > reglas.montoMaxAnticipo) {
+      showToast(`⚠ El monto excede el límite configurado de ${window.fmtMXN(reglas.montoMaxAnticipo)}`); return;
+    }
+    if (form.salida && form.regreso && reglas.diasMaxViaje) {
+      const dias = Math.round((new Date(form.regreso)-new Date(form.salida))/86400000);
+      if (dias > reglas.diasMaxViaje) {
+        showToast(`⚠ El viaje supera el máximo de ${reglas.diasMaxViaje} días permitidos`); return;
+      }
+    }
     const uid = userId || (window.USUARIOS[0]&&window.USUARIOS[0].id) || "U001";
     const u   = window.findUser(uid);
     const id  = "ANT-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-4);
@@ -2965,6 +3064,8 @@ function SolicitarAnticipo({ setPage, userId }) {
       destino: form.destino, notas: form.notas||null,
     };
     window.SOLICITUDES.unshift(nueva);
+    limpiarBorrador();
+    window.insertBitacora && window.insertBitacora(id, "solicitado", userId, `Monto: ${window.fmtMXN(totalDesg)}`);
     showToast("✓ Anticipo " + id + " enviado a tu gerente");
     setTimeout(()=>setPage&&setPage("dash"),1400);
   };
@@ -2979,7 +3080,19 @@ function SolicitarAnticipo({ setPage, userId }) {
   return (
     <>
       {toast && <div style={{position:"fixed", bottom:24, right:24, background:"var(--success-soft)", border:"1px solid oklch(from var(--success) l c h / 0.4)", color:"var(--success)", padding:"12px 18px", borderRadius:"var(--r-lg)", zIndex:100, fontWeight:500, fontSize:13}}>{toast}</div>}
-      <div className="page-head">
+      {_borrInit && (
+        <div style={{background:"var(--info-soft)",border:"1px solid var(--info)",borderRadius:8,
+          padding:"10px 16px",marginBottom:12,display:"flex",alignItems:"center",
+          justifyContent:"space-between",gap:12,fontSize:13}}>
+          <span><Icon name="clock" size={13}/> Borrador del {new Date(_borrInit.ts).toLocaleDateString("es-MX")} restaurado</span>
+          <button className="btn sm ghost" onClick={()=>{
+            setForm({concepto:"",destino:"",salida:"",regreso:"",notas:"",centro:u.centro||""});
+            setDesglose([{id:Date.now(),nombre:"",monto:0,cuenta:"6122900005"}]);
+            limpiarBorrador();
+          }}>Descartar</button>
+        </div>
+      )}
+    <div className="page-head">
         <div>
           <h1 className="page-title">Nueva solicitud de anticipo</h1>
           <div className="page-sub">Captura los datos del viaje y monto solicitado</div>
@@ -3843,6 +3956,166 @@ function NuevoReembolso({ setPage, userId }) {
   );
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// MisSolicitudes — historial completo de solicitudes del usuario
+// ═══════════════════════════════════════════════════════════════════════════
+function MisSolicitudes({ userId, setPage, openDetail }) {
+  const [filtroTipo,   setFiltroTipo]   = React.useState("todos");
+  const [filtroStatus, setFiltroStatus] = React.useState("todos");
+  const [busqueda,     setBusqueda]     = React.useState("");
+  const [, force] = React.useReducer(x=>x+1, 0);
+
+  // Recargar desde Supabase al montar
+  React.useEffect(() => {
+    if (!window.loadUserSolicitudes) return;
+    window.loadUserSolicitudes(userId).then(fresh => {
+      fresh.forEach(m => {
+        const ix = window.SOLICITUDES.findIndex(x => x.id === m.id);
+        if (ix >= 0) Object.assign(window.SOLICITUDES[ix], m);
+        else window.SOLICITUDES.unshift(m);
+      });
+      force();
+    });
+  }, [userId]);
+
+  const mine = window.SOLICITUDES.filter(s => s.usuario === userId);
+
+  const filtradas = mine.filter(s => {
+    if (filtroTipo   !== "todos" && s.tipo   !== filtroTipo)   return false;
+    if (filtroStatus !== "todos" && s.status !== filtroStatus) return false;
+    if (busqueda.trim()) {
+      const q = busqueda.toLowerCase();
+      if (!s.id.toLowerCase().includes(q) && !s.concepto.toLowerCase().includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => b.fecha - a.fecha);
+
+  const statusLabel = { solicitado:"Solicitado", autorizado:"Autorizado",
+    liberado:"Liberado", comprobado:"Comprobado", rechazado:"Rechazado", parcial:"Parcial" };
+  const tipoLabel = { anticipo:"Anticipo", comprobacion:"Comprobación", reembolso:"Reembolso" };
+
+  // KPIs rápidos
+  const totalAbierto = mine.filter(s => ["liberado","parcial"].includes(s.status) && s.saldoPendiente > 0)
+    .reduce((a,s) => a + s.saldoPendiente, 0);
+  const totalEnProceso = mine.filter(s => ["solicitado","autorizado"].includes(s.status)).length;
+  const totalRechazado = mine.filter(s => s.status === "rechazado").length;
+
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Mis solicitudes</h1>
+          <div className="page-sub">Historial completo · {mine.length} registros</div>
+        </div>
+        <button className="btn primary" onClick={() => setPage && setPage("anticipos")}>
+          <Icon name="plus" size={13}/> Nuevo anticipo
+        </button>
+      </div>
+
+      {/* KPIs rápidos */}
+      <div className="kpi-grid" style={{gridTemplateColumns:"repeat(3,1fr)", marginBottom:16}}>
+        <div className="kpi">
+          <div className="kpi-label">Saldo por comprobar</div>
+          <div className="kpi-value" style={{color: totalAbierto>0?"var(--warn)":"var(--success)"}}>
+            {window.fmtMXN(totalAbierto)}
+          </div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">En proceso</div>
+          <div className="kpi-value">{totalEnProceso}</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">Rechazadas</div>
+          <div className="kpi-value" style={{color: totalRechazado>0?"var(--danger)":"inherit"}}>
+            {totalRechazado}
+          </div>
+        </div>
+      </div>
+
+      {/* Filtros */}
+      <div className="row" style={{marginBottom:14, gap:8, flexWrap:"wrap"}}>
+        <input className="input" style={{flex:"1 1 160px"}} placeholder="Buscar por folio o concepto…"
+          value={busqueda} onChange={e => setBusqueda(e.target.value)}/>
+        <select className="select" value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
+          <option value="todos">Todos los tipos</option>
+          <option value="anticipo">Anticipos</option>
+          <option value="comprobacion">Comprobaciones</option>
+          <option value="reembolso">Reembolsos</option>
+        </select>
+        <select className="select" value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}>
+          <option value="todos">Todos los status</option>
+          <option value="solicitado">Solicitado</option>
+          <option value="autorizado">Autorizado</option>
+          <option value="liberado">Liberado</option>
+          <option value="parcial">Parcial</option>
+          <option value="comprobado">Comprobado</option>
+          <option value="rechazado">Rechazado</option>
+        </select>
+      </div>
+
+      {/* Tabla */}
+      <div className="card" style={{padding:0, overflow:"hidden"}}>
+        {filtradas.length === 0 ? (
+          <div style={{padding:40, textAlign:"center", color:"var(--text-3)"}}>
+            No hay solicitudes con ese filtro
+          </div>
+        ) : (
+          <table className="table">
+            <thead><tr>
+              <th>Folio</th>
+              <th>Tipo</th>
+              <th>Concepto</th>
+              <th>Fecha</th>
+              <th className="right">Monto</th>
+              <th className="right">Saldo</th>
+              <th>Status</th>
+              <th></th>
+            </tr></thead>
+            <tbody>
+              {filtradas.map(s => (
+                <tr key={s.id} style={{cursor:"pointer"}} onClick={() => openDetail && openDetail(s.id)}>
+                  <td className="id-cell">{s.id}</td>
+                  <td><span className="badge">{tipoLabel[s.tipo] || s.tipo}</span></td>
+                  <td style={{maxWidth:200, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+                    {s.concepto}
+                  </td>
+                  <td className="muted mono" style={{fontSize:12}}>{window.fmtFecha(s.fecha)}</td>
+                  <td className="num">{window.fmtMXN(s.monto)}</td>
+                  <td className="num">
+                    {s.tipo === "anticipo" && (s.saldoPendiente||0) > 0
+                      ? <span style={{color:"var(--warn)", fontWeight:600}}>{window.fmtMXN(s.saldoPendiente)}</span>
+                      : <span className="muted">—</span>}
+                  </td>
+                  <td><StatusBadge status={s.status}/></td>
+                  <td className="right">
+                    {s.status === "rechazado" && s.motivoRechazo && (
+                      <span title={s.motivoRechazo} style={{cursor:"help", color:"var(--danger)", fontSize:12}}>
+                        <Icon name="info" size={13}/>
+                      </span>
+                    )}
+                    {s.status === "parcial" && (
+                      <button className="btn sm ghost" onClick={e => { e.stopPropagation(); window.CIERRE_ANT_ID=s.id; setPage("cerrar-anticipo"); }}>
+                        Cerrar
+                      </button>
+                    )}
+                    {["liberado","parcial"].includes(s.status) && s.tipo === "anticipo" && (
+                      <button className="btn sm primary" style={{marginLeft:4}}
+                        onClick={e => { e.stopPropagation(); setPage("comprobaciones"); }}>
+                        Comprobar
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </>
+  );
+}
+
+
 function CierreAnticipo({ setPage, userId, anticipoId }) {
   const [anticipo, setAnticipo] = React.useState(null);
   const [file, setFile] = React.useState(null);
@@ -4102,6 +4375,7 @@ function GerenteBandeja({ openDetail, userId, role }) {
         showToast("⚠ Sin permisos para autorizar esta solicitud (RLS)"); return;
       }
     }
+    window.insertBitacora && window.insertBitacora(id, "autorizado", gerenteId || userId, null);
     s.status = "autorizado";
     if (s.tipo === "anticipo") s.saldoPendiente = s.saldoPendiente || s.monto;
     setItems(prev => prev.filter(x => x.id !== id));
@@ -4122,6 +4396,7 @@ function GerenteBandeja({ openDetail, userId, role }) {
         status: "rechazado", motivo_rechazo: motivo, saldo_pendiente: 0
       }).eq("id", sid);
       if (error) { showToast("Error: " + error.message); return; }
+      window.insertBitacora && window.insertBitacora(sid, "rechazado", userId, motivo);
     }
     const s = window.SOLICITUDES.find(x => x.id === sid);
     if (s) { s.status = "rechazado"; s.motivoRechazo = motivo; s.saldoPendiente = 0; }
@@ -4459,6 +4734,7 @@ function TesoreriaBandeja({ openDetail }) {
         }
         if (s.tipo === "comprobacion") updateData.saldo_pendiente = 0;
         await window.sb.from("solicitudes").update(updateData).eq("id", id);
+        window.insertBitacora && window.insertBitacora(id, s.tipo==="anticipo"?"liberado":"comprobado", userId, `${window.fmtMXN(s.monto)}`);
         // Si es comprobacion, actualizar anticipo padre también
         if (s.tipo === "comprobacion" && s.anticipoRef) {
           const ant = window.SOLICITUDES.find(x => x.id === s.anticipoRef);
@@ -7524,10 +7800,32 @@ function MUserHome({ userId, push, setTab }) {
   const c = window.findCentro(u.centro);
   const mine = window.SOLICITUDES.filter(s => s.usuario === userId);
   const saldo = mine.filter(s => s.tipo === "anticipo" && ["liberado","parcial"].includes(s.status) && s.saldoPendiente > 0).reduce((a,s)=>a+s.saldoPendiente, 0);
+
+  // Anticipos y reembolsos recién liberados (últimas 72h)
+  const recienLiberados = mine.filter(s =>
+    ["anticipo","reembolso"].includes(s.tipo) && s.status === "liberado" &&
+    s.updatedAt && (window.HOY - s.updatedAt) < 3 * 86400000
+  );
   const activas = mine.filter(s => !["comprobado","rechazado"].includes(s.status));
   const enProceso = mine.filter(s => ["solicitado","autorizado"].includes(s.status)).length;
   return (
     <div className="m-pad">
+      {recienLiberados.length > 0 && recienLiberados.map(s => (
+        <div key={s.id} style={{background:"rgba(34,197,94,.12)",border:"1px solid rgba(34,197,94,.4)",
+          borderRadius:10,padding:"10px 14px",marginBottom:10,fontSize:12.5}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <Icon name="check" size={14} style={{color:"#16a34a",flexShrink:0}}/>
+            <div>
+              <div style={{fontWeight:600,color:"#16a34a",fontSize:13}}>
+                {s.tipo==="anticipo" ? "Anticipo dispersado ✓" : "Reembolso aprobado ✓"}
+              </div>
+              <div style={{color:"var(--text-2)",marginTop:2,fontSize:12}}>
+                {s.id} · {window.fmtMXN(s.monto)}{s.tipo==="anticipo" ? " — recuerda comprobar" : " — en camino"}
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
       <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14, paddingTop:4}}>
         <div>
           <div style={{fontSize:11, color:"var(--text-3)", textTransform:"uppercase", letterSpacing:"0.06em"}}>Hola</div>
@@ -7556,6 +7854,10 @@ function MUserHome({ userId, push, setTab }) {
         <div className="m-card" style={{textAlign:"center", margin:0, cursor:"pointer"}} onClick={() => setTab("scan")}>
           <div style={{width:36, height:36, borderRadius:10, background:"var(--success-soft)", margin:"0 auto 8px", display:"grid", placeItems:"center", color:"var(--success)"}}><Icon name="upload" size={18}/></div>
           <div style={{fontSize:12, fontWeight:500}}>Subir XML</div>
+        </div>
+        <div className="m-card" style={{textAlign:"center", margin:0, cursor:"pointer"}} onClick={() => setTab("list")}>
+          <div style={{width:36, height:36, borderRadius:10, background:"var(--info-soft)", margin:"0 auto 8px", display:"grid", placeItems:"center", color:"var(--info)"}}><Icon name="list" size={18}/></div>
+          <div style={{fontSize:12, fontWeight:500}}>Mis solicitudes</div>
         </div>
       </div>
       <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:14}}>
@@ -7590,44 +7892,125 @@ function MUserHome({ userId, push, setTab }) {
 }
 
 function MUserList({ userId, push }) {
-  const mine = window.SOLICITUDES.filter(s => s.usuario === userId);
-  const [filtro, setFiltro] = React.useState("todas");
-  const data = filtro === "todas" ? mine : mine.filter(s => s.tipo === filtro);
-  const chips = [
-    {id:"todas", label:"Todas", n:mine.length},
-    {id:"anticipo", label:"Anticipos", n:mine.filter(s=>s.tipo==="anticipo").length},
-    {id:"comprobacion", label:"Comprob.", n:mine.filter(s=>s.tipo==="comprobacion").length},
-    {id:"reembolso", label:"Reemb.", n:mine.filter(s=>s.tipo==="reembolso").length},
+  const [, force] = React.useReducer(x=>x+1, 0);
+  React.useEffect(() => {
+    if (!window.loadUserSolicitudes) return;
+    window.loadUserSolicitudes(userId).then(fresh => {
+      fresh.forEach(m => {
+        const ix = window.SOLICITUDES.findIndex(x => x.id === m.id);
+        if (ix >= 0) Object.assign(window.SOLICITUDES[ix], m);
+        else window.SOLICITUDES.unshift(m);
+      });
+      force();
+    });
+  }, [userId]);
+
+  const mine = window.SOLICITUDES.filter(s => s.usuario === userId)
+    .sort((a,b) => b.fecha - a.fecha);
+  const [filtroTipo,   setFiltroTipo]   = React.useState("todas");
+  const [filtroStatus, setFiltroStatus] = React.useState("todos");
+
+  const data = mine.filter(s => {
+    if (filtroTipo !== "todas" && s.tipo !== filtroTipo) return false;
+    if (filtroStatus !== "todos" && s.status !== filtroStatus) return false;
+    return true;
+  });
+
+  const saldoAbierto = mine.filter(s=>["liberado","parcial"].includes(s.status)&&s.saldoPendiente>0)
+    .reduce((a,s)=>a+s.saldoPendiente,0);
+  const enProceso = mine.filter(s=>["solicitado","autorizado"].includes(s.status)).length;
+  const rechazadas = mine.filter(s=>s.status==="rechazado").length;
+
+  const tipoChips = [
+    {id:"todas",label:"Todas",n:mine.length},
+    {id:"anticipo",label:"Anticipos",n:mine.filter(s=>s.tipo==="anticipo").length},
+    {id:"comprobacion",label:"Comprob.",n:mine.filter(s=>s.tipo==="comprobacion").length},
+    {id:"reembolso",label:"Reemb.",n:mine.filter(s=>s.tipo==="reembolso").length},
   ];
+
   return (
     <div className="m-pad">
-      <div style={{display:"flex", gap:6, overflowX:"auto", paddingBottom:10}}>
-        {chips.map(c => (
-          <div key={c.id} className={`chip ${filtro === c.id ? "active" : ""}`} onClick={() => setFiltro(c.id)} style={{flexShrink:0}}>
-            {c.label} <span className="count">{c.n}</span>
+      {/* KPIs */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:14}}>
+        {[
+          {label:"Saldo deudor", val:window.fmtMXN(saldoAbierto), color:saldoAbierto>0?"var(--warn)":"var(--success)"},
+          {label:"En proceso", val:enProceso, color:"var(--text)"},
+          {label:"Rechazadas", val:rechazadas, color:rechazadas>0?"var(--danger)":"var(--text)"},
+        ].map(k=>(
+          <div key={k.label} className="m-card" style={{padding:"10px 12px",textAlign:"center"}}>
+            <div style={{fontSize:10,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.05em"}}>{k.label}</div>
+            <div style={{fontSize:16,fontWeight:700,color:k.color,marginTop:3}}>{k.val}</div>
           </div>
         ))}
       </div>
-      {data.length === 0 && <M_Empty title="Sin solicitudes" sub="No hay registros en esta categoría"/>}
-      {data.map(s => (
-        <div key={s.id} className="m-card" style={{cursor:"pointer"}} onClick={() => push({name:"detalle", id:s.id})}>
-          <div style={{display:"flex", justifyContent:"space-between", marginBottom:6}}>
-            <TipoBadge tipo={s.tipo}/>
-            <StatusBadge status={s.status}/>
+
+      {/* Filtros */}
+      <div style={{display:"flex",gap:6,overflowX:"auto",marginBottom:8,paddingBottom:2}}>
+        {tipoChips.map(c=>(
+          <button key={c.id} onClick={()=>setFiltroTipo(c.id)}
+            style={{flexShrink:0,padding:"5px 12px",borderRadius:20,fontSize:12,fontWeight:500,
+              background:filtroTipo===c.id?"var(--accent)":"var(--surface-2)",
+              color:filtroTipo===c.id?"var(--accent-fg)":"var(--text-2)",
+              border:"none",cursor:"pointer"}}>
+            {c.label} {c.n>0&&<span style={{fontSize:11}}>({c.n})</span>}
+          </button>
+        ))}
+      </div>
+      <select className="select" style={{width:"100%",marginBottom:12,fontSize:12.5}}
+        value={filtroStatus} onChange={e=>setFiltroStatus(e.target.value)}>
+        <option value="todos">Todos los status</option>
+        {["solicitado","autorizado","liberado","parcial","comprobado","rechazado"].map(s=>(
+          <option key={s} value={s}>{s.charAt(0).toUpperCase()+s.slice(1)}</option>
+        ))}
+      </select>
+
+      {/* Lista */}
+      {data.length === 0
+        ? <div style={{textAlign:"center",color:"var(--text-3)",padding:32,fontSize:13}}>Sin solicitudes con ese filtro</div>
+        : data.map(s => (
+          <div key={s.id} className="m-card" style={{marginBottom:8,padding:12}}
+            onClick={()=>push({name:"detalle",id:s.id})}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8}}>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                  <span style={{fontSize:11,fontFamily:"monospace",color:"var(--text-3)"}}>{s.id}</span>
+                  <StatusBadge status={s.status}/>
+                </div>
+                <div style={{fontSize:13,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.concepto}</div>
+                <div style={{fontSize:11,color:"var(--text-3)",marginTop:2}}>{window.fmtFecha(s.fecha)}</div>
+                {s.status==="rechazado"&&s.motivoRechazo&&(
+                  <div style={{fontSize:11,color:"var(--danger)",marginTop:3}}>✗ {s.motivoRechazo.slice(0,60)}</div>
+                )}
+              </div>
+              <div style={{textAlign:"right",flexShrink:0}}>
+                <div style={{fontSize:14,fontWeight:700}}>{window.fmtMXN(s.monto)}</div>
+                {["liberado","parcial"].includes(s.status)&&s.saldoPendiente>0&&(
+                  <div style={{fontSize:11,color:"var(--warn)",marginTop:2}}>Saldo: {window.fmtMXN(s.saldoPendiente)}</div>
+                )}
+              </div>
+            </div>
+            {/* Acciones rápidas */}
+            {(["liberado","parcial"].includes(s.status)&&s.tipo==="anticipo") && (
+              <div style={{display:"flex",gap:6,marginTop:8}}>
+                <button className="btn sm primary" style={{flex:1}}
+                  onClick={e=>{e.stopPropagation();push({name:"comprobar"});}}>
+                  Comprobar
+                </button>
+                {s.status==="parcial"&&(
+                  <button className="btn sm ghost"
+                    onClick={e=>{e.stopPropagation();window.CIERRE_ANT_ID=s.id;push({name:"cierre"});}}>
+                    Cerrar
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-          <div style={{fontSize:13, fontWeight:500}}>{s.concepto}</div>
-          <div className="mono muted" style={{fontSize:10.5, marginTop:2}}>{s.id}</div>
-          <div className="spread" style={{marginTop:8}}>
-            <span className="mono" style={{fontSize:14, fontWeight:600}}>{window.fmtMXN(s.monto)}</span>
-            <span className="muted mono" style={{fontSize:11}}>{window.fmtFecha(s.fecha)}</span>
-          </div>
-        </div>
-      ))}
+        ))
+      }
     </div>
   );
 }
 
-// ───────────────────────── Gerente ─────────────────────────
 
 function MGerenteBandeja({ userId, push, showSnack }) {
   const me = window.findUser(userId);
@@ -8337,13 +8720,23 @@ function MAdminCentros() {
 // ───────────────────────── Formularios móvil ─────────────────────────
 
 function MNuevoAnticipo({ userId, onDone, showSnack }) {
-  const [form, setForm] = React.useState({
+  const BORR_KEY_M = "viaticos_borrador_ant_" + userId;
+  const _borrM = (() => { try { return JSON.parse(localStorage.getItem(BORR_KEY_M)||"null"); } catch{ return null; } })();
+  const limpiarBorrM = () => { try { localStorage.removeItem(BORR_KEY_M); } catch(e) {} };
+
+  const [form, setForm] = React.useState(_borrM?.form || {
     concepto: "", centro: window.CENTROS[0]?.id || "",
     salida: "", regreso: "", destino: "", notas: "",
   });
-  const [lineas, setLineas] = React.useState([
+  const [lineas, setLineas] = React.useState(_borrM?.desglose || [
     { id: 1, nombre: "Pasajes", monto: 0, cuenta: "6122900001" },
   ]);
+
+  // Auto-guardar en localStorage
+  React.useEffect(() => {
+    if (!form.concepto && !form.destino) return;
+    try { localStorage.setItem(BORR_KEY_M, JSON.stringify({ form, desglose: lineas, ts: Date.now() })); } catch(e) {}
+  }, [form, lineas]);
   const upd = (k, v) => setForm({...form, [k]: v});
   const updL = (id, k, v) => setLineas(lineas.map(l => l.id === id ? { ...l, [k]: v } : l));
   const addL = () => setLineas([...lineas, { id: Date.now(), nombre: "", monto: 0, cuenta: "6122900005" }]);
@@ -8384,6 +8777,7 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
       destino: form.destino, salida: form.salida, regreso: form.regreso,
       notas: form.notas, items: lineas,
     });
+    limpiarBorrM();
     showSnack(`✓ ${id} enviado a tu gerente`);
     setTimeout(onDone, 1000);
   };
@@ -8396,6 +8790,18 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
 
   return (
     <div className="m-pad">
+      {_borrM && (
+        <div style={{background:"var(--info-soft)",border:"1px solid var(--info)",borderRadius:10,
+          padding:"10px 14px",marginBottom:12,display:"flex",alignItems:"center",
+          justifyContent:"space-between",gap:8,fontSize:12.5}}>
+          <span><Icon name="clock" size={13}/> Borrador del {new Date(_borrM.ts).toLocaleDateString("es-MX")} restaurado</span>
+          <button className="btn sm ghost" style={{flexShrink:0}} onClick={()=>{
+            setForm({concepto:"",destino:"",salida:"",regreso:"",notas:"",centro:window.CENTROS[0]?.id||""});
+            setLineas([{id:Date.now(),cuenta:"6122900005",monto:""}]);
+            limpiarBorrM();
+          }}>Descartar</button>
+        </div>
+      )}
       <div className="m-balance" style={{padding:14, marginBottom:14}}>
         <div className="m-balance-l">Monto total estimado</div>
         <div className="m-balance-v">{window.fmtMXN(total)}</div>
@@ -9370,12 +9776,386 @@ const DEFAULT_PAGE = {
 // Páginas válidas por rol — cualquier página fuera de esta lista
 // cae al default en lugar de renderizar null (pantalla negra)
 const VALID_PAGES = {
-  usuario:  ["dash","anticipos","comprobaciones","reembolsos","nuevo-reembolso","cerrar-anticipo","perfil"],
-  gerente:  ["bandeja","equipo","historial","reportes","perfil","mis-solicitudes","anticipos","reembolsos","nuevo-reembolso","cerrar-anticipo","comprobaciones"],
+  usuario:  ["dash","anticipos","comprobaciones","reembolsos","nuevo-reembolso","cerrar-anticipo","mis-solicitudes","metricas","ajustes-sistema","perfil"],
+  gerente:  ["bandeja","equipo","historial","reportes","perfil","mis-solicitudes","anticipos","reembolsos","nuevo-reembolso","cerrar-anticipo","comprobaciones","metricas"],
   tesoreria:["liberacion","pagados","deudores","reportes","perfil"],
-  admin:    ["usuarios","centros","catalogo","reportes","ajustes","perfil","liberacion","pagados","deudores","polizas","bandeja","equipo","historial","dash","anticipos","comprobaciones","reembolsos","nuevo-reembolso","cerrar-anticipo","mis-solicitudes"],
+  admin:    ["usuarios","centros","catalogo","reportes","ajustes","perfil","liberacion","pagados","deudores","polizas","bandeja","equipo","historial","dash","anticipos","comprobaciones","reembolsos","nuevo-reembolso","cerrar-anticipo","mis-solicitudes","metricas","ajustes-sistema"],
   contador: ["polizas","catalogo","perfil"],
 };
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AdminMetricas — Panel de métricas operativas para admin
+// ══════════════════════════════════════════════════════════════════════════════
+function AdminMetricas() {
+  const [, force] = React.useReducer(x=>x+1,0);
+  const [anio, setAnio] = React.useState("2026");
+
+  React.useEffect(() => {
+    if(window.loadSolicitudes) window.loadSolicitudes().then(()=>force());
+  },[]);
+
+  const todos = window.SOLICITUDES.filter(s =>
+    String(s.fecha.getFullYear()) === anio
+  );
+
+  // ── KPI 1: Ciclo completo (solicitud → liberado/comprobado) ────────────────
+  const ciclos = todos.filter(s =>
+    s.tipo==="anticipo" && ["liberado","comprobado"].includes(s.status) && s.updatedAt
+  ).map(s => (s.updatedAt - s.fecha)/86400000);
+  const promCiclo = ciclos.length ? (ciclos.reduce((a,b)=>a+b,0)/ciclos.length).toFixed(1) : "—";
+
+  // ── KPI 2: Tasa de rechazo por gerente ────────────────────────────────────
+  const gerentes = window.USUARIOS.filter(u=>u.rol==="gerente"||u.rol==="admin");
+  const tasaRechazo = gerentes.map(g => {
+    const equipo = window.USUARIOS.filter(u=>u.gerente===g.id).map(u=>u.id);
+    const mias = todos.filter(s=>equipo.includes(s.usuario));
+    const rechazadas = mias.filter(s=>s.status==="rechazado").length;
+    const total = mias.length;
+    return { nombre: g.nombre, rechazadas, total,
+      tasa: total ? Math.round(rechazadas/total*100) : 0 };
+  }).filter(g=>g.total>0).sort((a,b)=>b.tasa-a.tasa);
+
+  // ── KPI 3: Anticipos sin movimiento >30 días ──────────────────────────────
+  const hoy = window.HOY;
+  const sinMovimiento = todos.filter(s =>
+    s.tipo==="anticipo" && ["liberado","parcial"].includes(s.status) &&
+    s.saldoPendiente>0 && (hoy - s.fecha)/86400000 > 30
+  ).sort((a,b) => b.fecha-a.fecha ? -1 : 1);
+
+  // ── KPI 4: Tiempo promedio de respuesta gerencial ─────────────────────────
+  const respuestas = todos.filter(s =>
+    ["autorizado","rechazado"].includes(s.status) && s.updatedAt
+  ).map(s => (s.updatedAt-s.fecha)/3600000);
+  const promResp = respuestas.length
+    ? (respuestas.reduce((a,b)=>a+b,0)/respuestas.length).toFixed(1)
+    : "—";
+
+  // ── KPI 5: Resumen de volumen ─────────────────────────────────────────────
+  const totalDisp = todos.filter(s=>["liberado","comprobado","parcial"].includes(s.status))
+    .reduce((a,s)=>a+s.monto,0);
+  const totalPend = todos.filter(s=>["solicitado","autorizado"].includes(s.status))
+    .reduce((a,s)=>a+s.monto,0);
+  const totalDeudor = todos.filter(s=>s.tipo==="anticipo"&&["liberado","parcial"].includes(s.status)&&s.saldoPendiente>0)
+    .reduce((a,s)=>a+s.saldoPendiente,0);
+
+  const AÑOS=["2026","2025","2024"];
+
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Métricas operativas</h1>
+          <div className="page-sub">Control y auditoría del ciclo de viáticos</div>
+        </div>
+        <select className="select" value={anio} onChange={e=>setAnio(e.target.value)}>
+          {AÑOS.map(a=><option key={a} value={a}>{a}</option>)}
+        </select>
+      </div>
+
+      {/* KPIs principales */}
+      <div className="kpi-grid" style={{marginBottom:20}}>
+        <div className="kpi">
+          <div className="kpi-label">Ciclo promedio (días)</div>
+          <div className="kpi-value">{promCiclo}</div>
+          <div className="kpi-delta">solicitud → liberado</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">Tiempo resp. gerencial</div>
+          <div className="kpi-value">{promResp} h</div>
+          <div className="kpi-delta up">SLA: 24 h</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">Sin movimiento &gt;30d</div>
+          <div className="kpi-value" style={{color:sinMovimiento.length>0?"var(--danger)":"var(--success)"}}>
+            {sinMovimiento.length}
+          </div>
+          <div className="kpi-delta">{sinMovimiento.length>0?"requieren atención":"al día"}</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">Dispersado {anio}</div>
+          <div className="kpi-value">{window.fmtMXN(totalDisp)}</div>
+          <div className="kpi-delta">{todos.filter(s=>s.tipo==="anticipo").length} anticipos</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">En proceso</div>
+          <div className="kpi-value">{window.fmtMXN(totalPend)}</div>
+          <div className="kpi-delta">{todos.filter(s=>["solicitado","autorizado"].includes(s.status)).length} solicitudes</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">Saldo deudor total</div>
+          <div className="kpi-value" style={{color:"var(--warn)"}}>{window.fmtMXN(totalDeudor)}</div>
+          <div className="kpi-delta">{todos.filter(s=>s.tipo==="anticipo"&&["liberado","parcial"].includes(s.status)&&s.saldoPendiente>0).length} deudores</div>
+        </div>
+      </div>
+
+      <div className="grid-2" style={{gap:16, display:"grid", gridTemplateColumns:"1fr 1fr", marginBottom:20}}>
+        {/* Tasa de rechazo por gerente */}
+        <div className="card">
+          <div className="card-head">
+            <h3 className="card-title">Tasa de rechazo por gerente</h3>
+          </div>
+          {tasaRechazo.length===0
+            ? <div className="muted" style={{padding:16,fontSize:13}}>Sin datos suficientes</div>
+            : <table className="table">
+                <thead><tr><th>Gerente</th><th className="right">Rechazadas</th><th className="right">Total</th><th className="right">%</th></tr></thead>
+                <tbody>
+                  {tasaRechazo.map(g=>(
+                    <tr key={g.nombre}>
+                      <td>{g.nombre}</td>
+                      <td className="num" style={{color:g.rechazadas>0?"var(--danger)":"inherit"}}>{g.rechazadas}</td>
+                      <td className="num">{g.total}</td>
+                      <td className="num">
+                        <span style={{background:g.tasa>20?"var(--danger-soft)":g.tasa>10?"var(--warn-soft)":"var(--success-soft)",
+                          color:g.tasa>20?"var(--danger)":g.tasa>10?"var(--warn)":"var(--success)",
+                          padding:"2px 8px",borderRadius:10,fontSize:12}}>
+                          {g.tasa}%
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+          }
+        </div>
+
+        {/* Anticipos sin movimiento */}
+        <div className="card">
+          <div className="card-head">
+            <h3 className="card-title">Anticipos sin movimiento &gt;30 días</h3>
+            {sinMovimiento.length>0 && (
+              <span style={{background:"var(--danger-soft)",color:"var(--danger)",
+                padding:"2px 10px",borderRadius:10,fontSize:12,fontWeight:600}}>
+                {sinMovimiento.length}
+              </span>
+            )}
+          </div>
+          {sinMovimiento.length===0
+            ? <div className="muted" style={{padding:16,fontSize:13}}>✓ No hay anticipos vencidos</div>
+            : <table className="table">
+                <thead><tr><th>Folio</th><th>Usuario</th><th className="right">Días</th><th className="right">Saldo</th></tr></thead>
+                <tbody>
+                  {sinMovimiento.slice(0,10).map(s=>{
+                    const u=window.findUser(s.usuario);
+                    const dias=Math.floor((hoy-s.fecha)/86400000);
+                    return (
+                      <tr key={s.id}>
+                        <td className="id-cell">{s.id}</td>
+                        <td>{u?.nombre||s.usuario}</td>
+                        <td className="num" style={{color:"var(--danger)",fontWeight:600}}>{dias}</td>
+                        <td className="num">{window.fmtMXN(s.saldoPendiente)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+          }
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AdminAjustes — Reglas de validación configurables
+// ══════════════════════════════════════════════════════════════════════════════
+function AdminAjustes() {
+  const [saving, setSaving] = React.useState(false);
+  const [toast, setToast]   = React.useState(null);
+  const showToast = (msg, ok=true) => { setToast({msg,ok}); setTimeout(()=>setToast(null),3000); };
+
+  const [reglas, setReglas] = React.useState({
+    montoMaxAnticipo:  window.REGLAS?.montoMaxAnticipo  || 50000,
+    montoMaxReembolso: window.REGLAS?.montoMaxReembolso || 15000,
+    diasMaxViaje:      window.REGLAS?.diasMaxViaje      || 30,
+    cuentasPermitidas: (window.REGLAS?.cuentasPermitidas||[]).join(","),
+  });
+
+  const guardar = async () => {
+    setSaving(true);
+    const entries = [
+      { clave:"montoMaxAnticipo",  valor: String(reglas.montoMaxAnticipo)  },
+      { clave:"montoMaxReembolso", valor: String(reglas.montoMaxReembolso) },
+      { clave:"diasMaxViaje",      valor: String(reglas.diasMaxViaje)      },
+      { clave:"cuentasPermitidas", valor: JSON.stringify(
+          reglas.cuentasPermitidas.split(",").map(s=>s.trim()).filter(Boolean)
+        )},
+    ];
+    if (window.sb) {
+      for (const e of entries) {
+        await window.sb.from("ajustes").upsert(e, { onConflict:"clave" });
+      }
+      // Update in-memory REGLAS
+      window.REGLAS.montoMaxAnticipo  = parseFloat(reglas.montoMaxAnticipo)||50000;
+      window.REGLAS.montoMaxReembolso = parseFloat(reglas.montoMaxReembolso)||15000;
+      window.REGLAS.diasMaxViaje      = parseInt(reglas.diasMaxViaje)||30;
+      window.REGLAS.cuentasPermitidas = reglas.cuentasPermitidas.split(",").map(s=>s.trim()).filter(Boolean);
+      showToast("✓ Reglas actualizadas correctamente");
+    } else {
+      showToast("⚠ Sin conexión a Supabase — los cambios se pierden al recargar", false);
+    }
+    setSaving(false);
+  };
+
+  const Field = ({label, sub, value, onChange, type="number"}) => (
+    <div className="field">
+      <label>{label}</label>
+      {sub && <div className="card-sub" style={{marginBottom:6}}>{sub}</div>}
+      <input className="input" type={type} value={value}
+        onChange={e=>onChange(e.target.value)}/>
+    </div>
+  );
+
+  return (
+    <>
+      {toast && (
+        <div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",
+          zIndex:999,background:toast.ok?"var(--success)":"var(--danger)",
+          color:"#fff",padding:"8px 20px",borderRadius:20,fontSize:13,
+          fontWeight:500,boxShadow:"0 4px 16px rgba(0,0,0,.3)"}}>
+          {toast.msg}
+        </div>
+      )}
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Ajustes del sistema</h1>
+          <div className="page-sub">Reglas de validación configurables</div>
+        </div>
+        <button className="btn primary" onClick={guardar} disabled={saving}>
+          {saving ? "Guardando…" : "Guardar cambios"}
+        </button>
+      </div>
+
+      <div className="grid-2" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
+        <div className="card">
+          <div className="card-head"><h3 className="card-title">Límites de monto</h3></div>
+          <div style={{display:"flex",flexDirection:"column",gap:14,padding:"0 0 4px"}}>
+            <Field label="Monto máximo por anticipo (MXN)"
+              sub="El sistema rechazará solicitudes que excedan este monto"
+              value={reglas.montoMaxAnticipo}
+              onChange={v=>setReglas(r=>({...r,montoMaxAnticipo:v}))}/>
+            <Field label="Monto máximo por reembolso (MXN)"
+              sub="Límite para solicitudes de reembolso"
+              value={reglas.montoMaxReembolso}
+              onChange={v=>setReglas(r=>({...r,montoMaxReembolso:v}))}/>
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-head"><h3 className="card-title">Límites de tiempo</h3></div>
+          <div style={{display:"flex",flexDirection:"column",gap:14,padding:"0 0 4px"}}>
+            <Field label="Días máximos de viaje"
+              sub="Máximo de días entre fecha salida y regreso"
+              value={reglas.diasMaxViaje}
+              onChange={v=>setReglas(r=>({...r,diasMaxViaje:v}))}/>
+          </div>
+        </div>
+
+        <div className="card" style={{gridColumn:"1/-1"}}>
+          <div className="card-head">
+            <h3 className="card-title">Cuentas contables permitidas</h3>
+            <div className="card-sub">Deja vacío para permitir todas</div>
+          </div>
+          <div className="field">
+            <label>Códigos de cuenta (separados por coma)</label>
+            <div className="card-sub" style={{marginBottom:6}}>
+              Ejemplo: 6122900001,6122900003,6122900005 — solo estas cuentas aparecerán en el desglose
+            </div>
+            <input className="input" type="text"
+              placeholder="vacío = todas permitidas"
+              value={reglas.cuentasPermitidas}
+              onChange={e=>setReglas(r=>({...r,cuentasPermitidas:e.target.value}))}/>
+          </div>
+          {/* Preview de cuentas actuales */}
+          <div style={{marginTop:12}}>
+            <div style={{fontSize:12,color:"var(--text-3)",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.05em"}}>
+              Catálogo disponible
+            </div>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+              {window.CATALOGO_GASTOS.map(c=>(
+                <span key={c.cuenta} style={{
+                  padding:"3px 10px",borderRadius:20,fontSize:12,
+                  background: !reglas.cuentasPermitidas || reglas.cuentasPermitidas.includes(c.cuenta)
+                    ? "var(--success-soft)" : "var(--surface-2)",
+                  color: !reglas.cuentasPermitidas || reglas.cuentasPermitidas.includes(c.cuenta)
+                    ? "var(--success)" : "var(--text-3)",
+                  border: "1px solid var(--border)",
+                }}>
+                  {c.cuenta} · {c.nombre}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Bitácora reciente */}
+      <div className="card" style={{marginTop:20}}>
+        <div className="card-head">
+          <h3 className="card-title">Bitácora reciente</h3>
+          <div className="card-sub">Últimas acciones del sistema</div>
+        </div>
+        <BitacoraPanel limit={20}/>
+      </div>
+    </>
+  );
+}
+
+// ── BitacoraPanel — muestra registros de auditoría ─────────────────────────
+function BitacoraPanel({ limit=10 }) {
+  const [rows, setRows] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    if (!window.sb) { setLoading(false); return; }
+    window.sb.from("bitacora")
+      .select("*")
+      .order("ts", { ascending: false })
+      .limit(limit)
+      .then(({ data }) => {
+        setRows(data || []);
+        setLoading(false);
+      });
+  }, []);
+
+  const ACCION_COLOR = {
+    solicitado: "var(--info)", autorizado: "var(--warn)",
+    rechazado:  "var(--danger)", liberado: "var(--accent)",
+    comprobado: "var(--success)",
+  };
+
+  if (loading) return <div style={{padding:16,color:"var(--text-3)",fontSize:13}}>Cargando bitácora…</div>;
+  if (rows.length===0) return <div style={{padding:16,color:"var(--text-3)",fontSize:13}}>Sin registros aún. Las acciones del sistema se registrarán aquí.</div>;
+
+  return (
+    <table className="table">
+      <thead><tr>
+        <th>Fecha</th><th>Solicitud</th><th>Acción</th><th>Usuario</th><th>Detalle</th>
+      </tr></thead>
+      <tbody>
+        {rows.map((r,i)=>{
+          const u=window.findUser(r.usuario_id);
+          return (
+            <tr key={r.id||i}>
+              <td className="muted mono" style={{fontSize:11}}>{r.ts ? new Date(r.ts).toLocaleString("es-MX",{dateStyle:"short",timeStyle:"short"}) : "—"}</td>
+              <td className="id-cell">{r.solicitud_id||"—"}</td>
+              <td>
+                <span style={{background:ACCION_COLOR[r.accion]+"22",color:ACCION_COLOR[r.accion]||"var(--text)",
+                  padding:"2px 8px",borderRadius:10,fontSize:12,fontWeight:500}}>
+                  {r.accion}
+                </span>
+              </td>
+              <td style={{fontSize:12}}>{u?.nombre||r.usuario_id||"—"}</td>
+              <td className="muted" style={{fontSize:12,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {r.detalle||"—"}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
 
 function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
   // Perfil — disponible para todos
@@ -9388,6 +10168,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     if (page === "reembolsos")     return <Reembolsos userId={userId} setPage={setPage}/>;
     if (page === "nuevo-reembolso") return <NuevoReembolso setPage={setPage} userId={userId}/>;
     if (page === "cerrar-anticipo") return <CierreAnticipo setPage={setPage} userId={userId} anticipoId={window.CIERRE_ANT_ID}/>;
+    if (page === "mis-solicitudes") return <MisSolicitudes userId={userId} setPage={setPage} openDetail={setDetailId}/>;
     // fallback
     return <UserDashboard userId={userId} openDetail={setDetailId} setPage={setPage}/>;
   }
@@ -9421,6 +10202,8 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     if (page === "catalogo")  return <AdminCatalogo/>;
     if (page === "reportes")  return <Reportes role={role} userId={userId}/>;
     if (page === "ajustes")   return <AdminAjustes/>;
+    if (page === "metricas")  return <AdminMetricas/>;
+    if (page === "ajustes-sistema") return <AdminAjustes/>;
     // Admin operando como tesorería
     if (page === "liberacion") return <TesoreriaBandeja openDetail={setDetailId}/>;
     if (page === "pagados")    return <TesoreriaPagados openDetail={setDetailId}/>;
@@ -10028,6 +10811,7 @@ function App() {
         // 2. Cargar datos reales en background sin bloquear UI
         await window.loadFromDB();
         await window.loadSolicitudes();
+        await window.loadReglas();
         setDbLoaded(true);  // ← fuerza re-render con datos reales
       } else {
         // Sin sesión: cargar catálogos y mostrar login
