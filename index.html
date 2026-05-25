@@ -1256,7 +1256,6 @@ const supabase = window.supabase
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 window.sb = supabase;
-        window.SB_SESSION = session;
 
 // Carga catálogos desde Supabase (centros, cuentas_contables, usuarios)
 async function loadFromDB() {
