@@ -7423,33 +7423,7 @@ function GerenteHistorial({ openDetail, userId }) {
 }
 
 // ── AdminAjustes ─────────────────────────────────────────────────────────────
-function AdminAjustes() {
-  return (
-    <>
-      <div className="page-head"><h1 className="page-title">Ajustes del sistema</h1></div>
-      <div className="card">
-        <div className="card-head"><h3 className="card-title">Configuración general</h3></div>
-        <div className="muted" style={{fontSize:13}}>Los ajustes del sistema se configuran directamente en el código fuente.<br/>
-          Cuenta de bancos: editable en Catálogo de gastos.<br/>
-          Sociedad SAP: editable en el módulo de Pólizas.
-        </div>
-      </div>
-    </>
-  );
-}
 
-Object.assign(window, {
-  GerenteBandeja, TesoreriaBandeja, GerenteEquipo, GerenteHistorial,
-  TesoreriaPagados, AdminUsuarios, AdminCentros, AdminCatalogo,
-  Deudores, Reportes, ContadorPolizas, EditableCell,
-  descargarTodosAdjuntos, DetalleModal, EditModal, AdminAjustes,
-});
-
-// ═══ mobile ═══
-// Viáticos — Mobile (usuario en celular)
-
-
-// ── MobileScan — lector CFDI real para la vista móvil ────────────────────────
 function MobileScan({ userId, onDone }) {
   const [facturas, setFacturas] = React.useState([]);
   const [enviado, setEnviado]   = React.useState(false);
