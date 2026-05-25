@@ -5621,7 +5621,8 @@ function Deudores({ role, userId }) {
     const rows=[["Folio","Concepto","Usuario","Centro","Saldo","Días","Bucket"]];
     ahoraSaldos.sort((a,b)=>a.fecha-b.fecha).forEach(s=>{
       const u=window.findUser(s.usuario);
-      const dias=Math.floor((hoy-s.fecha)/86400000);
+      const fechaRef=s.updatedAt||s.fecha;
+      const dias=Math.floor((hoy-fechaRef)/86400000);
       const bk=dias<=15?"0-15":dias<=30?"16-30":dias<=60?"31-60":"60+";
       rows.push([s.id,s.concepto,u.nombre,u.centro,s.saldoPendiente,dias,bk]);
     });
@@ -5704,7 +5705,8 @@ function Deudores({ role, userId }) {
                 ? <tr><td colSpan={6} style={{textAlign:"center",padding:"24px",color:"var(--text-3)"}}>Sin saldos pendientes para este filtro</td></tr>
                 : ahoraSaldos.sort((a,b)=>a.fecha-b.fecha).map(s=>{
                     const u=window.findUser(s.usuario);
-                    const dias=Math.floor((hoy-s.fecha)/86400000);
+                    const fechaRef=s.updatedAt||s.fecha;
+                    const dias=Math.floor((hoy-fechaRef)/86400000);
                     const bk=dias<=15?"0-15":dias<=30?"16-30":dias<=60?"31-60":"60+";
                     const col=dias>60?"var(--danger)":dias>30?"#e88a27":dias>15?"var(--warn)":"var(--success)";
                     return (
@@ -5738,7 +5740,7 @@ function Deudores({ role, userId }) {
                 {topDeudores.map((d,i)=>{
                   const pct=totalSaldos>0?Math.round(d.monto/totalSaldos*100):0;
                   const c=window.findCentro(d.u.centro);
-                  const diasMax=Math.max(...ahoraSaldos.filter(s=>s.usuario===d.u.id).map(s=>Math.floor((hoy-s.fecha)/86400000)),0);
+                  const diasMax=Math.max(...ahoraSaldos.filter(s=>s.usuario===d.u.id).map(s=>Math.floor((hoy-(s.updatedAt||s.fecha))/86400000)),0);
                   const barColor=diasMax>60?"var(--danger)":diasMax>30?"#e88a27":diasMax>15?"var(--warn)":"var(--success)";
                   return (
                     <div key={d.u.id} style={{display:"grid",gridTemplateColumns:"200px 1fr 130px 80px",gap:12,alignItems:"center"}}>
@@ -9090,7 +9092,8 @@ function MReportes({ role, userId }) {
   const saldos = data.filter(s => s.tipo === "anticipo" && ["liberado","parcial"].includes(s.status) && (s.saldoPendiente||0) > 0);
   const buckets = {"0-15":[],"16-30":[],"31-60":[],"60+":[]};
   saldos.forEach(s => {
-    const d = Math.floor((window.HOY - s.fecha)/(1000*60*60*24));
+    const fechaRef = s.updatedAt || s.fecha;  // desde liberación, no desde solicitud
+    const d = Math.floor((window.HOY - fechaRef)/(1000*60*60*24));
     if (d <= 15) buckets["0-15"].push(s);
     else if (d <= 30) buckets["16-30"].push(s);
     else if (d <= 60) buckets["31-60"].push(s);
@@ -9793,7 +9796,7 @@ function AdminMetricas() {
   const hoy = window.HOY;
   const sinMovimiento = todos.filter(s =>
     s.tipo==="anticipo" && ["liberado","parcial"].includes(s.status) &&
-    s.saldoPendiente>0 && (hoy - s.fecha)/86400000 > 30
+    s.saldoPendiente>0 && (hoy - (s.updatedAt||s.fecha))/86400000 > 30
   ).sort((a,b) => b.fecha-a.fecha ? -1 : 1);
 
   // ── KPI 4: Tiempo promedio de respuesta gerencial ─────────────────────────
@@ -9910,7 +9913,7 @@ function AdminMetricas() {
                 <tbody>
                   {sinMovimiento.slice(0,10).map(s=>{
                     const u=window.findUser(s.usuario);
-                    const dias=Math.floor((hoy-s.fecha)/86400000);
+                    const dias=Math.floor((hoy-(s.updatedAt||s.fecha))/86400000);
                     return (
                       <tr key={s.id}>
                         <td className="id-cell">{s.id}</td>
