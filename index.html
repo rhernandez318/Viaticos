@@ -4370,7 +4370,6 @@ function GerenteBandeja({ openDetail, userId, role }) {
       if (s.tipo === "anticipo") updateRow.saldo_pendiente = s.monto;
       const { error, data } = await window.sb.from("solicitudes")
         .update(updateRow).eq("id", id).select();
-      console.log("aprobar result:", data, error);
       if (error) { showToast("Error al autorizar: " + error.message); return; }
       if (!data || data.length === 0) {
         showToast("⚠ Sin permisos para autorizar esta solicitud (RLS)"); return;
