@@ -1256,6 +1256,7 @@ const supabase = window.supabase
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 window.sb = supabase;
+        window.SB_SESSION = session;
 
 // Carga catálogos desde Supabase (centros, cuentas_contables, usuarios)
 async function loadFromDB() {
@@ -4734,7 +4735,8 @@ function TesoreriaBandeja({ openDetail }) {
         }
         if (s.tipo === "comprobacion") updateData.saldo_pendiente = 0;
         await window.sb.from("solicitudes").update(updateData).eq("id", id);
-        window.insertBitacora && window.insertBitacora(id, s.tipo==="anticipo"?"liberado":"comprobado", userId, `${window.fmtMXN(s.monto)}`);
+        const _tesoUserId = window.SB_SESSION?.user?.id || null;
+        window.insertBitacora && window.insertBitacora(id, s.tipo==="anticipo"?"liberado":"comprobado", _tesoUserId, `${window.fmtMXN(s.monto)}`);
         // Si es comprobacion, actualizar anticipo padre también
         if (s.tipo === "comprobacion" && s.anticipoRef) {
           const ant = window.SOLICITUDES.find(x => x.id === s.anticipoRef);
@@ -10868,6 +10870,7 @@ function App() {
   // Rol SIEMPRE viene del usuario logueado — no se puede cambiar desde la UI
   const role   = session.user.rol;   // "usuario" | "gerente" | "tesoreria" | "admin"
   const userId = session.user.id;
+  window.SB_SESSION = session.user;  // exponer para componentes sin prop userId
   const isAdmin = role === "admin";
   const isMobileView = t.density === "mobile";
 
