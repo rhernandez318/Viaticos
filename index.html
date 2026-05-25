@@ -3180,15 +3180,13 @@ function CompUploader({ onAdd, solicitudId }) {
       if (window.sb) {
         const ext = file.name.split(".").pop();
         const uid = (solicitudId || "tmp") + "-" + Date.now();
-        const path = `comprobantes/${uid}.${ext}`;
-        console.log("Uploading to Storage:", path, file.type, file.size);
+        const path = `${uid}.${ext}`;
         const { error: upErr } = await window.sb.storage.from("comprobantes").upload(path, file, { upsert: true });
         if (!upErr) {
           const { data: { publicUrl } } = window.sb.storage.from("comprobantes").getPublicUrl(path);
           archivoUrl = publicUrl;
-          console.log("Upload OK:", publicUrl);
         } else {
-          console.error("Storage upload error:", upErr.message, upErr.statusCode, upErr);
+          console.warn("Storage upload error:", upErr.message);
         }
       }
 
@@ -4157,13 +4155,8 @@ function CierreAnticipo({ setPage, userId, anticipoId }) {
     if (window.sb && file) {
       const ext = file.name.split(".").pop();
       const path = `cierres/${anticipoId}/${id}.${ext}`;
-      console.log("CierreAnticipo upload:", path, file.type, file.size);
       const { error: upErr } = await window.sb.storage.from("comprobantes").upload(path, file);
-      if (upErr) {
-        console.error("Cierre upload error:", upErr.message, upErr.statusCode, upErr);
-        showToast("Error subiendo archivo: "+upErr.message, false); setEnviado(false); return;
-      }
-      console.log("Cierre upload OK");
+      if (upErr) { showToast("Error subiendo archivo: "+upErr.message, false); setEnviado(false); return; }
       const { data: { publicUrl } } = window.sb.storage.from("comprobantes").getPublicUrl(path);
       archivoUrl = publicUrl;
     }
@@ -7445,7 +7438,7 @@ function MobileScan({ userId, onDone }) {
     if (!window.sb) return null;
     try {
       const ext = file.name.split(".").pop().toLowerCase();
-      const path = `comprobantes/${prefix}-${Date.now()}.${ext}`;
+      const path = `${prefix}-${Date.now()}.${ext}`;
       const { error } = await window.sb.storage.from("comprobantes").upload(path, file, { upsert: true });
       if (error) { console.warn("Storage:", error.message); return null; }
       const { data: { publicUrl } } = window.sb.storage.from("comprobantes").getPublicUrl(path);
