@@ -1161,6 +1161,7 @@ table.t {
   }
 </script>
 <script type="text/babel">
+const React = window.React;
 
 // ═══ data ═══
 // Viáticos — datos seed
@@ -3740,7 +3741,7 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
                         </td>
                         <td className="right">
                           {!c.duplicado && <button className="icon-btn" onClick={() => setEditId(c.id)} title="Editar"><Icon name="settings" size={13}/></button>}
-                          <button className="icon-btn" onClick={() => remItem(c.id)} title="Eliminar" style={{color:c.duplicado?"var(--danger)":"inherit"}}><Icon name="x" size={12}/></button>
+                          <button className="icon-btn" onClick={() => delItem(c.id)} title="Eliminar" style={{color:c.duplicado?"var(--danger)":"inherit"}}><Icon name="x" size={12}/></button>
                         </td>
                       </tr>
                     );
