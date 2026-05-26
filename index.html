@@ -3501,6 +3501,26 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
   const delItem = (id) => setItems(items.filter(i => i.id !== id));
   const total = items.reduce((a,i) => a + i.total, 0);
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
+
+  const checkDuplicados = async (newItems) => {
+    const flagged = await Promise.all(newItems.map(async (item) => {
+      const uuid = item.uuidFull || item.uuid;
+      if (!uuid) return item;
+      const yaEnLista = items.some(i => (i.uuidFull||i.uuid) === uuid);
+      if (yaEnLista) return { ...item, duplicado: true, motivoDup: "Ya agregado en esta comprobación" };
+      if (window.sb) {
+        const { data } = await window.sb.from("comprobantes_cfdi")
+          .select("solicitud_id").eq("uuid", uuid).limit(1);
+        if (data && data.length > 0)
+          return { ...item, duplicado: true, motivoDup: "Ya comprobado en solicitud " + data[0].solicitud_id };
+      }
+      return item;
+    }));
+    const dupes = flagged.filter(i => i.duplicado);
+    if (dupes.length > 0) showToast(`⚠ ${dupes.length} comprobante${dupes.length>1?"s":""} duplicado${dupes.length>1?"s":""} detectado${dupes.length>1?"s":""}`);
+    else showToast(`✓ ${newItems.length} archivo${newItems.length>1?"s":""} procesado${newItems.length>1?"s":""}`);
+    setItems(prev => [...prev, ...flagged]);
+  };
   const handleEnviar = async () => {
     if (enviado) return;
     const itemsValidos = items.filter(i => !i.duplicado);
@@ -3635,24 +3655,7 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
         <div>
           <div className="card" style={{marginBottom:14}}>
             <h3 className="card-title" style={{marginBottom:14}}>Sube tus comprobantes</h3>
-            <CompUploader solicitudId={anticipoSel ? anticipoSel.id : "cmp"} onAdd={async (newItems) => {
-              // Verificar duplicados contra Supabase y contra items ya cargados
-              const itemsConFlag = await Promise.all(newItems.map(async (item) => {
-                if (!item.uuidFull && !item.uuid) return item; // sin UUID (PDF) — no hay duplicado posible
-                const uuid = item.uuidFull || item.uuid;
-                // Ya está en items actuales?
-                const yaEnLista = items.some(i => (i.uuidFull||i.uuid) === uuid);
-                if (yaEnLista) return { ...item, duplicado: true, motivoDup: "Ya agregado en esta comprobación" };
-                // Ya existe en Supabase?
-                if (window.sb) {
-                  const { data } = await window.sb.from("comprobantes_cfdi").select("solicitud_id").eq("uuid", uuid).limit(1);
-                  if (data && data.length > 0) return { ...item, duplicado: true, motivoDup: "Ya comprobado en solicitud " + data[0].solicitud_id };
-                }
-                return item;
-              }));
-              const dupes = itemsConFlag.filter(i => i.duplicado);
-              if (dupes.length > 0) showToast(`⚠ ${dupes.length} comprobante${dupes.length>1?"s":""} duplicado${dupes.length>1?"s":""} detectado${dupes.length>1?"s":""}`);
-              setItems(prev => [...prev, ...itemsConFlag]); showToast(`✓ ${newItems.length} archivo${newItems.length>1?"s":""} procesado${newItems.length>1?"s":""}`); }}/>
+            <CompUploader solicitudId={anticipoSel ? anticipoSel.id : "cmp"} onAdd={(newItems) => { checkDuplicados(newItems); }}/>
           </div>
 
           <div className="card">
