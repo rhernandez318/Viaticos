@@ -7226,33 +7226,31 @@ function EditableCell({ value, placeholder, onChange }) {
 // ── Descarga todos los adjuntos de una solicitud ────────────────────────────
 function descargarTodosAdjuntos(solicitudId, folio) {
   const s = window.SOLICITUDES.find(x => x.id === (solicitudId || folio));
-  const archivos = s && s.cfdi && s.cfdi.length > 0
-    ? s.cfdi.map((cf, i) => ({
-        nombre: `${(s||{}).id||folio}_${(cf.emisor||"factura").replace(/[^a-zA-Z0-9]/g,"_").slice(0,20)}_${i+1}`,
-        uuid: cf.uuid || cf.uuidFull || null, emisor: cf.emisor || null, total: cf.total || 0,
-      }))
-    : s && s.comprobantes > 0
-      ? Array.from({length: s.comprobantes}, (_,i) => ({
-          nombre: `${(s||{}).id||folio}_comprobante_${i+1}`,
-          uuid: null, emisor: null, total: null,
-        }))
-      : [];
-  if (!archivos.length) { alert("No hay comprobantes adjuntos registrados en esta solicitud."); return; }
-  archivos.forEach((f, i) => {
+  if (!s || !s.cfdi || s.cfdi.length === 0) {
+    alert("No hay comprobantes adjuntos registrados en esta solicitud.");
+    return;
+  }
+  // Solo descargar archivos que realmente existen en Storage (con archivo_url)
+  const archivos = s.cfdi.filter(cf => cf.archivo_url);
+  if (archivos.length === 0) {
+    alert("Esta solicitud no tiene archivos adjuntos en almacenamiento. Es probable que los comprobantes se hayan registrado solo con datos (UUID/RFC) sin subir el archivo físico.");
+    return;
+  }
+  archivos.forEach((cf, i) => {
     setTimeout(() => {
-      const xmlContent = f.uuid
-        ? `<?xml version="1.0" encoding="UTF-8"?><Comprobante UUID="${f.uuid}" Emisor="${f.emisor||""}" Total="${f.total||0}" Folio="${folio}"/>`
-        : `<?xml version="1.0" encoding="UTF-8"?><Comprobante Folio="${folio}" Archivo="${i+1}"/>`;
-      const ax = document.createElement("a");
-      ax.href = "data:application/xml;charset=utf-8," + encodeURIComponent(xmlContent);
-      ax.download = `${f.nombre}.xml`; ax.click();
-      setTimeout(() => {
-        const pdfText = [`%PDF-1.4`,`% UUID: ${f.uuid||"—"}`,`% Emisor: ${f.emisor||"—"}`,`% Total: $${f.total||0}`].join("\n");
-        const ap = document.createElement("a");
-        ap.href = "data:application/pdf;charset=utf-8," + encodeURIComponent(pdfText);
-        ap.download = `${f.nombre}.pdf`; ap.click();
-      }, 300);
-    }, i * 800);
+      // Forzar descarga abriendo en nueva pestaña
+      const a = document.createElement("a");
+      a.href = cf.archivo_url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      // El nombre se infiere de la URL (ya tiene extensión)
+      const urlExt = (cf.archivo_url.split(".").pop() || "").split("?")[0].toLowerCase();
+      const safeEmisor = (cf.emisor||"factura").replace(/[^a-zA-Z0-9]/g,"_").slice(0,20);
+      a.download = `${s.id}_${safeEmisor}_${i+1}.${urlExt}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }, i*250);
   });
 }
 
@@ -7394,38 +7392,60 @@ function DetalleModal({ id, onClose }) {
           )}
 
           {(() => {
-            const archivos = s.cfdi&&s.cfdi.length>0
-              ? s.cfdi.map((cf,i)=>({nombre:`${s.id}_${(cf.emisor||"factura").replace(/[^a-zA-Z0-9]/g,"_").slice(0,20)}_${i+1}`,uuid:cf.uuid,tipo:"XML",total:cf.total}))
-              : s.comprobantes>0
-                ? Array.from({length:s.comprobantes},(_,i)=>({nombre:`${s.id}_comprobante_${i+1}`,tipo:"XML",total:null}))
-                : [];
-            if (!archivos.length) return null;
+            // Solo mostrar archivos reales con archivo_url
+            const archivos = (s.cfdi || []).filter(cf => cf.archivo_url);
+            if (!archivos.length) {
+              // Mostrar mensaje si hay registros sin archivo
+              if (s.cfdi && s.cfdi.length > 0) {
+                return (
+                  <>
+                    <div className="divider"></div>
+                    <h3 className="card-title" style={{fontSize:14, margin:"0 0 8px"}}>Archivos adjuntos</h3>
+                    <div className="muted" style={{fontSize:12, fontStyle:"italic"}}>
+                      Esta solicitud tiene {s.cfdi.length} comprobante{s.cfdi.length>1?"s":""} registrado{s.cfdi.length>1?"s":""} pero sin archivo físico en el almacenamiento.
+                    </div>
+                  </>
+                );
+              }
+              return null;
+            }
             return (
               <>
                 <div className="divider"></div>
                 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-                  <h3 className="card-title" style={{fontSize:14,margin:0}}>Archivos adjuntos <span className="muted" style={{fontWeight:400,fontSize:12,marginLeft:8}}>{archivos.length} archivo{archivos.length>1?"s":""}</span></h3>
+                  <h3 className="card-title" style={{fontSize:14,margin:0}}>
+                    Archivos adjuntos <span className="muted" style={{fontWeight:400,fontSize:12,marginLeft:8}}>{archivos.length} archivo{archivos.length>1?"s":""}</span>
+                  </h3>
                   <button className="btn sm" onClick={()=>descargarTodosAdjuntos(s.id,s.id)}>
-                    <Icon name="download" size={12}/> Descargar todos ({archivos.length*2})
+                    <Icon name="download" size={12}/> Descargar todos
                   </button>
                 </div>
-                <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
-                  {archivos.map((f,i)=>(
-                    <React.Fragment key={i}>
-                      <button onClick={()=>{const a=document.createElement("a");a.href="data:application/xml;charset=utf-8,"+encodeURIComponent(`<?xml version="1.0"?><Comprobante UUID="${f.uuid||""}" Folio="${s.id}" Archivo="${i+1}"/>`);a.download=`${f.nombre}.xml`;a.click();}}
-                        style={{display:"inline-flex",alignItems:"center",gap:7,padding:"6px 11px",borderRadius:"var(--r-md,8px)",border:"1px solid var(--border)",background:"var(--surface-1)",cursor:"pointer",fontFamily:"inherit",color:"var(--text)",fontSize:12}}>
-                        <span style={{background:"rgba(197,242,77,.15)",color:"var(--accent)",fontWeight:700,fontSize:9,padding:"2px 5px",borderRadius:4,fontFamily:"monospace"}}>XML</span>
-                        {f.nombre}<Icon name="download" size={11} style={{color:"var(--accent)"}}/>
-                      </button>
-                      <button onClick={()=>{const a=document.createElement("a");a.href="data:application/pdf;charset=utf-8,"+encodeURIComponent(`%PDF-1.4
-% ${f.nombre}
-% UUID: ${f.uuid||"—"}`);a.download=`${f.nombre}.pdf`;a.click();}}
-                        style={{display:"inline-flex",alignItems:"center",gap:7,padding:"6px 11px",borderRadius:"var(--r-md,8px)",border:"1px solid var(--border)",background:"var(--surface-1)",cursor:"pointer",fontFamily:"inherit",color:"var(--text)",fontSize:12}}>
-                        <span style={{background:"rgba(55,138,221,.15)",color:"var(--info,#378ADD)",fontWeight:700,fontSize:9,padding:"2px 5px",borderRadius:4,fontFamily:"monospace"}}>PDF</span>
-                        {f.nombre}<Icon name="download" size={11} style={{color:"var(--info)"}}/>
-                      </button>
-                    </React.Fragment>
-                  ))}
+                <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                  {archivos.map((cf,i) => {
+                    const ext = (cf.archivo_url.split(".").pop()||"").split("?")[0].toLowerCase();
+                    const tipo = ext.toUpperCase();
+                    const isXml = ext === "xml";
+                    return (
+                      <a key={i} href={cf.archivo_url} target="_blank" rel="noopener noreferrer"
+                        style={{display:"flex",alignItems:"center",gap:10,padding:"8px 12px",
+                          borderRadius:"var(--r-md,8px)",border:"1px solid var(--border)",
+                          background:"var(--surface-1)",textDecoration:"none",color:"var(--text)",fontSize:12.5}}>
+                        <span style={{background: isXml ? "rgba(197,242,77,.15)" : "rgba(239,159,39,.15)",
+                          color: isXml ? "var(--accent)" : "var(--warn)",
+                          fontWeight:700,fontSize:9,padding:"3px 7px",borderRadius:4,fontFamily:"monospace",
+                          flexShrink:0}}>{tipo}</span>
+                        <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          {cf.emisor || cf.concepto || "Comprobante "+(i+1)}
+                        </span>
+                        {cf.total > 0 && (
+                          <span className="muted" style={{fontSize:11,fontFamily:"monospace",flexShrink:0}}>
+                            {window.fmtMXN(cf.total)}
+                          </span>
+                        )}
+                        <Icon name="download" size={13} style={{color:"var(--accent)",flexShrink:0}}/>
+                      </a>
+                    );
+                  })}
                 </div>
               </>
             );
