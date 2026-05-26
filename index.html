@@ -3503,8 +3503,18 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
   const handleEnviar = async () => {
     if (enviado) return;
-    if (items.length === 0) { showToast("⚠ Agrega al menos un comprobante antes de enviar"); return; }
-    const totalComp = items.reduce((a, i) => a + (i.total || 0), 0);
+    const itemsValidos = items.filter(i => !i.duplicado);
+    const itemsDuplic  = items.filter(i =>  i.duplicado);
+    if (itemsValidos.length === 0) {
+      showToast("⚠ " + (itemsDuplic.length > 0
+        ? "Todos los comprobantes son duplicados — elimínalos o súbelos desde otra solicitud"
+        : "Agrega al menos un comprobante antes de enviar"));
+      return;
+    }
+    if (itemsDuplic.length > 0) {
+      showToast(`⚠ Se excluirán ${itemsDuplic.length} comprobante${itemsDuplic.length>1?"s":""} duplicado${itemsDuplic.length>1?"s":""} del envío`);
+    }
+    const totalComp = itemsValidos.reduce((a, i) => a + (i.total || 0), 0);
     const saldoActual = anticipoSel ? (anticipoSel.saldoPendiente || anticipoSel.monto) : 0;
 
     // Validar que no exceda el saldo disponible
@@ -3531,23 +3541,23 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
         usuario_id: userId, monto: totalComp,
         status: "solicitado",
         anticipo_ref: anticipoSel ? anticipoSel.id : null,
-        comprobantes: items.length,
+        comprobantes: itemsValidos.length,
         saldo_pendiente: 0,
         fecha: new Date().toISOString(),
       });
       if (error) { showToast("⚠ Error al enviar: " + error.message); return; }
 
       // Guardar CFDIs
-      if (items.length > 0) {
-        await window.sb.from("comprobantes_cfdi").insert(
-          items.map(it => ({
+      if (itemsValidos.length > 0) {
+        await window.sb.from("comprobantes_cfdi").upsert(
+          itemsValidos.map(it => ({
             solicitud_id: id,
-            uuid: it.uuidFull || it.uuid || ("SIN-UUID-" + Date.now()),
+            uuid: it.uuidFull || it.uuid || ("SIN-UUID-" + Date.now() + "-" + Math.random().toString(36).slice(2,6)),
             emisor: it.emisor, concepto: it.concepto,
             subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
             cuenta: it.cuenta, confianza: it.confianza||0.9,
             archivo_url: it.archivo_url || null,
-          }))
+          })), { onConflict: "uuid", ignoreDuplicates: true }
         );
       }
       // NO actualizamos saldo_pendiente del anticipo padre aquí
@@ -3563,7 +3573,7 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
       concepto: "Comprobación " + (anticipoSel ? anticipoSel.id : ""),
       usuario: userId, monto: totalComp, fecha: new Date(),
       status: "solicitado", anticipoRef: anticipoSel ? anticipoSel.id : null,
-      comprobantes: items.length, cfdi: items, saldoPendiente: 0,
+      comprobantes: items.length, cfdi: itemsValidos, saldoPendiente: 0,
     };
     window.SOLICITUDES.unshift(nueva);
 
@@ -3625,7 +3635,24 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
         <div>
           <div className="card" style={{marginBottom:14}}>
             <h3 className="card-title" style={{marginBottom:14}}>Sube tus comprobantes</h3>
-            <CompUploader solicitudId={anticipoSel ? anticipoSel.id : "cmp"} onAdd={(newItems) => { setItems(prev => [...prev, ...newItems]); showToast(`✓ ${newItems.length} archivo${newItems.length>1?"s":""} procesado${newItems.length>1?"s":""}`); }}/>
+            <CompUploader solicitudId={anticipoSel ? anticipoSel.id : "cmp"} onAdd={async (newItems) => {
+              // Verificar duplicados contra Supabase y contra items ya cargados
+              const itemsConFlag = await Promise.all(newItems.map(async (item) => {
+                if (!item.uuidFull && !item.uuid) return item; // sin UUID (PDF) — no hay duplicado posible
+                const uuid = item.uuidFull || item.uuid;
+                // Ya está en items actuales?
+                const yaEnLista = items.some(i => (i.uuidFull||i.uuid) === uuid);
+                if (yaEnLista) return { ...item, duplicado: true, motivoDup: "Ya agregado en esta comprobación" };
+                // Ya existe en Supabase?
+                if (window.sb) {
+                  const { data } = await window.sb.from("comprobantes_cfdi").select("solicitud_id").eq("uuid", uuid).limit(1);
+                  if (data && data.length > 0) return { ...item, duplicado: true, motivoDup: "Ya comprobado en solicitud " + data[0].solicitud_id };
+                }
+                return item;
+              }));
+              const dupes = itemsConFlag.filter(i => i.duplicado);
+              if (dupes.length > 0) showToast(`⚠ ${dupes.length} comprobante${dupes.length>1?"s":""} duplicado${dupes.length>1?"s":""} detectado${dupes.length>1?"s":""}`);
+              setItems(prev => [...prev, ...itemsConFlag]); showToast(`✓ ${newItems.length} archivo${newItems.length>1?"s":""} procesado${newItems.length>1?"s":""}`); }}/>
           </div>
 
           <div className="card">
@@ -3679,26 +3706,38 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
                       );
                     }
                     return (
-                      <tr key={c.id}>
-                        <td className="id-cell">{c.uuid && !c.uuid.startsWith("CIERRE") ? c.uuid.slice(0,20)+"…" : "—"}</td>
-                        <td>{c.emisor}</td>
-                        <td className="muted">{c.concepto}</td>
-                        <td className="num">{window.fmtMXN(c.total)}</td>
+                      <tr key={c.id} style={c.duplicado ? {background:"rgba(226,75,74,.08)"} : {}}>
+                        <td className="id-cell" style={c.duplicado ? {textDecoration:"line-through",color:"var(--danger)"} : {}}>
+                          {c.uuid && !c.uuid.startsWith("CIERRE") ? c.uuid.slice(0,20)+"…" : "—"}
+                        </td>
+                        <td style={c.duplicado ? {textDecoration:"line-through"} : {}}>{c.emisor}</td>
+                        <td className="muted" style={c.duplicado ? {textDecoration:"line-through"} : {}}>{c.concepto}</td>
+                        <td className="num">
+                          {c.duplicado
+                            ? <span style={{color:"var(--danger)",fontSize:11,fontWeight:600,whiteSpace:"nowrap"}}>⚠ Duplicado</span>
+                            : window.fmtMXN(c.total)}
+                        </td>
                         <td>{c.archivo_url && <a href={c.archivo_url} target="_blank" rel="noopener noreferrer" style={{fontSize:11,color:"var(--accent)",textDecoration:"none"}}><Icon name="download" size={11}/> Ver</a>}</td>
                         <td>
-                          <div style={{display:"flex", flexDirection:"column", gap:2}}>
-                            <span style={{fontSize:12.5}}>{cuenta.nombre}</span>
-                            <span className="mono muted" style={{fontSize:11}}>{cuenta.cuenta}</span>
-                          </div>
+                          {c.duplicado
+                            ? <span style={{fontSize:11,color:"var(--danger)"}}>{c.motivoDup||"Ya registrado"}</span>
+                            : <div style={{display:"flex", flexDirection:"column", gap:2}}>
+                                <span style={{fontSize:12.5}}>{cuenta.nombre}</span>
+                                <span className="mono muted" style={{fontSize:11}}>{cuenta.cuenta}</span>
+                              </div>
+                          }
                         </td>
                         <td>
-                          <div className={`conf ${c.confianza < 0.9 ? "warn" : ""}`}>
-                            <div className="meter"><div className="fill" style={{width: `${c.confianza*100}%`}}></div></div>
-                            {Math.round(c.confianza*100)}%
-                          </div>
+                          {!c.duplicado && (
+                            <div className={`conf ${c.confianza < 0.9 ? "warn" : ""}`}>
+                              <div className="meter"><div className="fill" style={{width: `${c.confianza*100}%`}}></div></div>
+                              {Math.round(c.confianza*100)}%
+                            </div>
+                          )}
                         </td>
                         <td className="right">
-                          <button className="icon-btn" onClick={() => setEditId(c.id)} title="Editar"><Icon name="settings" size={13}/></button>
+                          {!c.duplicado && <button className="icon-btn" onClick={() => setEditId(c.id)} title="Editar"><Icon name="settings" size={13}/></button>}
+                          <button className="icon-btn" onClick={() => remItem(c.id)} title="Eliminar" style={{color:c.duplicado?"var(--danger)":"inherit"}}><Icon name="x" size={12}/></button>
                         </td>
                       </tr>
                     );
@@ -3879,7 +3918,7 @@ function NuevoReembolso({ setPage, userId }) {
           subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
           cuenta: it.cuenta, confianza: it.confianza||0.9,
         }));
-        await window.sb.from("comprobantes_cfdi").insert(cfdiRows);
+        await window.sb.from("comprobantes_cfdi").upsert(cfdiRows, { onConflict: "uuid", ignoreDuplicates: true });
       }
     }
     const nueva = {
@@ -4179,7 +4218,7 @@ function CierreAnticipo({ setPage, userId, anticipoId }) {
 
       // Guardar comprobante como CFDI especial (para que aparezca en detalle)
       if (archivoUrl) {
-        await window.sb.from("comprobantes_cfdi").insert({
+        await window.sb.from("comprobantes_cfdi").upsert({
           solicitud_id: id,
           uuid: "CIERRE-" + id,
           emisor: (u?.nombre || "Usuario"),
@@ -4188,7 +4227,7 @@ function CierreAnticipo({ setPage, userId, anticipoId }) {
           cuenta: "1110000001",
           confianza: 1.0,
           archivo_url: archivoUrl,
-        });
+        }], { onConflict: "uuid", ignoreDuplicates: true });
       }
     }
 
@@ -7547,15 +7586,15 @@ function MobileScan({ userId, onDone }) {
       });
       if (error) { showToast("⚠ Error: " + error.message); return; }
       if (facturas.length > 0) {
-        await window.sb.from("comprobantes_cfdi").insert(
+        await window.sb.from("comprobantes_cfdi").upsert(
           facturas.map(it=>({
             solicitud_id: id,
-            uuid: it.uuidFull || it.uuid || ("SIN-UUID-"+Date.now()),
+            uuid: it.uuidFull || it.uuid || ("SIN-UUID-"+Date.now()+"-"+Math.random().toString(36).slice(2,6)),
             emisor: it.emisor, concepto: it.concepto,
             subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
             cuenta: it.cuenta, confianza: it.confianza||0.9,
             archivo_url: it.archivo_url || null,
-          }))
+          })), { onConflict: "uuid", ignoreDuplicates: true }
         );
       }
     }
@@ -8963,15 +9002,15 @@ function MNuevaComprobacion({ userId, onDone, showSnack }) {
       });
       if (error) { showSnack("⚠ Error: " + error.message); return; }
       if (facturas.length > 0) {
-        await window.sb.from("comprobantes_cfdi").insert(
+        await window.sb.from("comprobantes_cfdi").upsert(
           facturas.map(it=>({
             solicitud_id: id,
-            uuid: it.uuidFull || it.uuid || ("SIN-UUID-"+Date.now()),
+            uuid: it.uuidFull || it.uuid || ("SIN-UUID-"+Date.now()+"-"+Math.random().toString(36).slice(2,6)),
             emisor: it.emisor, concepto: it.concepto,
             subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
             cuenta: it.cuenta, confianza: it.confianza||0.9,
             archivo_url: it.archivo_url || null,
-          }))
+          })), { onConflict: "uuid", ignoreDuplicates: true }
         );
       }
       // Actualizar saldo del anticipo padre
