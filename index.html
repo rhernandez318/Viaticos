@@ -4222,7 +4222,7 @@ function CierreAnticipo({ setPage, userId, anticipoId }) {
 
       // Guardar comprobante como CFDI especial (para que aparezca en detalle)
       if (archivoUrl) {
-        await window.sb.from("comprobantes_cfdi").upsert({
+        await window.sb.from("comprobantes_cfdi").upsert([{
           solicitud_id: id,
           uuid: "CIERRE-" + id,
           emisor: (u?.nombre || "Usuario"),
