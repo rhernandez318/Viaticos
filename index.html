@@ -1387,6 +1387,7 @@ async function loadSolicitudes() {
         saldoPendiente: saldoCalc,
         anticipoRef:    s.anticipo_ref || null,
         motivoRechazo:  s.motivo_rechazo || null,
+        comentarios:    s.comentarios || [],
         updatedAt:      s.updated_at ? new Date(s.updated_at) : null,
         comprobantes:   s.comprobantes || 0,
         destino:        s.destino || null,
@@ -1461,6 +1462,7 @@ window.loadUserSolicitudes = async (userId) => {
           : (['liberado','parcial'].includes(s.status) ? parseFloat(s.monto)||0 : 0)),
       anticipoRef: s.anticipo_ref || null,
       motivoRechazo: s.motivo_rechazo || null,
+        comentarios: s.comentarios || [],
       updatedAt: s.updated_at ? new Date(s.updated_at) : null,
       comprobantes: s.comprobantes || 0,
       items: (s.items||[]).map(i=>({cuenta:i.cuenta,desc:i.descripcion,monto:parseFloat(i.monto)||0})),
@@ -1631,6 +1633,76 @@ Object.assign(window, {
   calcSaldo, generarPolizaLiquidacion, getBancosAccount,
   insertBitacora, REGLAS, loadReglas,
 });
+// ── Web Push — suscripción ────────────────────────────────────────────────────
+const VAPID_PUBLIC_KEY = "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBFfRnLYlxLVpNEr1RNkdFBxkiA";
+
+function urlBase64ToUint8Array(b64) {
+  const pad = "=".repeat((4 - b64.length % 4) % 4);
+  const b64s = (b64 + pad).replace(/-/g,"+").replace(/_/g,"/");
+  const raw = atob(b64s);
+  return Uint8Array.from(Array.from(raw).map(c => c.charCodeAt(0)));
+}
+
+window.pushEnabled = false;
+
+async function subscribeToPush() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return false;
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") return false;
+    const reg = await navigator.serviceWorker.ready;
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) { window.pushEnabled = true; return true; }
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+    });
+    if (window.sb && window.SB_SESSION) {
+      await window.sb.from("push_subscriptions").upsert({
+        usuario_id: window.SB_SESSION.id,
+        subscription: JSON.stringify(sub),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "usuario_id" });
+    }
+    window.pushEnabled = true;
+    return true;
+  } catch(e) { console.warn("Push error:", e.message); return false; }
+}
+
+async function unsubscribeFromPush() {
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) await sub.unsubscribe();
+    if (window.sb && window.SB_SESSION) {
+      await window.sb.from("push_subscriptions").delete().eq("usuario_id", window.SB_SESSION.id);
+    }
+    window.pushEnabled = false; return true;
+  } catch(e) { return false; }
+}
+
+async function checkPushStatus() {
+  if (!("PushManager" in window)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    window.pushEnabled = !!sub;
+  } catch(e) {}
+}
+
+async function sendLocalNotification(title, body, tag) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const reg = await navigator.serviceWorker.ready;
+  reg.showNotification(title, {
+    body, tag: tag || "viaticos", renotify: true,
+    icon: "/Viaticos/icons/icon-192.png",
+    badge: "/Viaticos/icons/icon-192.png",
+  });
+}
+
+Object.assign(window, { subscribeToPush, unsubscribeFromPush, checkPushStatus, sendLocalNotification });
+
+
 
 // ═══ icons ═══
 // Viáticos — Icons (inline SVG, line style, 16-20px)
@@ -4427,24 +4499,43 @@ function GerenteBandeja({ openDetail, userId, role }) {
   // ── Rechazo ────────────────────────────────────────────────────────────
   const abrirRechazo = (id, e) => {
     e.stopPropagation();
-    setRechazoModal({ id, motivo: "" });
+    const s = window.SOLICITUDES.find(x => x.id === id);
+    const historial = s?.comentarios || [];
+    setRechazoModal({ id, motivo: "", historial });
   };
   const confirmarRechazo = async () => {
     if (!rechazoModal.motivo.trim()) return;
     const sid = rechazoModal.id;
     const motivo = rechazoModal.motivo.trim();
     if (window.sb) {
+      const nuevoComentario = {
+        ts: new Date().toISOString(),
+        userId, nombre: (window.findUser(userId)||{}).nombre || "Gerente",
+        texto: motivo, accion: "rechazado"
+      };
+      const s_actual = window.SOLICITUDES.find(x => x.id === sid);
+      const comentariosActuales = s_actual?.comentarios || [];
+      const nuevosComentarios = [...comentariosActuales, nuevoComentario];
       const { error } = await window.sb.from("solicitudes").update({
-        status: "rechazado", motivo_rechazo: motivo, saldo_pendiente: 0
+        status: "rechazado", motivo_rechazo: motivo, saldo_pendiente: 0,
+        comentarios: nuevosComentarios,
       }).eq("id", sid);
       if (error) { showToast("Error: " + error.message); return; }
       window.insertBitacora && window.insertBitacora(sid, "rechazado", userId, motivo);
     }
     const s = window.SOLICITUDES.find(x => x.id === sid);
-    if (s) { s.status = "rechazado"; s.motivoRechazo = motivo; s.saldoPendiente = 0; }
+    if (s) {
+      s.status = "rechazado"; s.motivoRechazo = motivo; s.saldoPendiente = 0;
+      s.comentarios = [...(s.comentarios || []), nuevoComentario];
+    }
     setItems(prev => prev.filter(x => x.id !== sid));
     showToast(`Solicitud ${sid} rechazada`, "warn");
     setRechazoModal(null);
+    window.sendLocalNotification && window.sendLocalNotification(
+      "❌ Solicitud rechazada",
+      `${sid} fue rechazada. Revisa los comentarios del gerente y corrige.`,
+      "rechazado-" + sid
+    );
   };
 
   // ── Exportar CSV ───────────────────────────────────────────────────────
@@ -4508,6 +4599,31 @@ function GerenteBandeja({ openDetail, userId, role }) {
                 border:"1px solid var(--danger)"}}>
                 El colaborador verá este motivo y podrá corregir y reenviar su solicitud.
               </div>
+              {/* Historial de comentarios */}
+              {rechazoModal.historial && rechazoModal.historial.length > 0 && (
+                <div style={{marginBottom:14}}>
+                  <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:"0.06em",
+                    color:"var(--text-3)",marginBottom:8,fontWeight:600}}>
+                    Historial de comentarios
+                  </div>
+                  {rechazoModal.historial.map((c,i) => (
+                    <div key={i} style={{display:"flex",gap:10,marginBottom:8,
+                      padding:"8px 12px",background:"var(--surface-2)",borderRadius:8,
+                      borderLeft:"3px solid "+(c.accion==="rechazado"?"var(--danger)":"var(--info)")}}>
+                      <div style={{flex:1}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+                          <span style={{fontSize:12,fontWeight:600}}>{c.nombre||"Gerente"}</span>
+                          <span style={{fontSize:11,color:"var(--text-3)"}}>
+                            {c.ts ? new Date(c.ts).toLocaleString("es-MX",{dateStyle:"short",timeStyle:"short"}) : ""}
+                          </span>
+                        </div>
+                        <div style={{fontSize:13,color:"var(--text-2)"}}>{c.texto}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="field">
                 <label>Motivo del rechazo *</label>
                 <textarea className="input" style={{minHeight:90,resize:"vertical"}}
@@ -4823,6 +4939,11 @@ function TesoreriaBandeja({ openDetail }) {
     }, 0);
     setToast(`✓ ${idsArr.length} solicitud${idsArr.length > 1 ? "es" : ""} liberada${idsArr.length > 1 ? "s" : ""} · ${window.fmtMXN(total)} dispersados`);
     setTimeout(() => setToast(null), 3500);
+    window.sendLocalNotification && window.sendLocalNotification(
+      "💰 Pagos procesados",
+      `${idsArr.length} solicitud${idsArr.length>1?"es":""} liberada${idsArr.length>1?"s":""} · ${window.fmtMXN(total)}`,
+      "liberados-batch"
+    );
   };
 
   const toggle = (id) => {
@@ -8000,6 +8121,11 @@ function MUserList({ userId, push }) {
                 {s.status==="rechazado"&&s.motivoRechazo&&(
                   <div style={{fontSize:11,color:"var(--danger)",marginTop:3}}>✗ {s.motivoRechazo.slice(0,60)}</div>
                 )}
+                {s.comentarios&&s.comentarios.length>0&&(
+                  <div style={{fontSize:11,color:"var(--text-3)",marginTop:2}}>
+                    💬 {s.comentarios.length} comentario{s.comentarios.length>1?"s":""} — ver detalle
+                  </div>
+                )}
               </div>
               <div style={{textAlign:"right",flexShrink:0}}>
                 <div style={{fontSize:14,fontWeight:700}}>{window.fmtMXN(s.monto)}</div>
@@ -9475,6 +9601,31 @@ function MDetalle({ id }) {
         </>
       )}
 
+      {/* Historial de comentarios del gerente */}
+      {s.comentarios && s.comentarios.length > 0 && (
+        <>
+          <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:"0.08em",
+            color:"var(--text-3)",margin:"14px 4px 8px",fontWeight:600}}>
+            Comentarios del gerente
+          </div>
+          <div className="m-card" style={{padding:0}}>
+            {s.comentarios.map((c,i) => (
+              <div key={i} style={{padding:"10px 14px",
+                borderBottom:i<s.comentarios.length-1?"1px solid var(--border)":"none",
+                borderLeft:"3px solid "+(c.accion==="rechazado"?"var(--danger)":"var(--info)")}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}>
+                  <span style={{fontSize:12,fontWeight:600}}>{c.nombre||"Gerente"}</span>
+                  <span style={{fontSize:11,color:"var(--text-3)"}}>
+                    {c.ts ? new Date(c.ts).toLocaleString("es-MX",{dateStyle:"short",timeStyle:"short"}) : ""}
+                  </span>
+                </div>
+                <div style={{fontSize:13,color:"var(--text-2)"}}>{c.texto}</div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
       {s.notas && s.notas.includes("CIERRE_DEPOSITO") && (
         <>
           <div style={{fontSize:11,textTransform:"uppercase",letterSpacing:"0.08em",color:"var(--text-3)",margin:"14px 4px 8px",fontWeight:600}}>Datos del reintegro</div>
@@ -9512,6 +9663,22 @@ function MDetalle({ id }) {
 }
 
 function MProfile({ userId, onLogout }) {
+  const [pushOn, setPushOn] = React.useState(!!window.pushEnabled);
+  const [pushLoading, setPushLoading] = React.useState(false);
+  React.useEffect(() => {
+    if (window.checkPushStatus) window.checkPushStatus().then(()=>setPushOn(!!window.pushEnabled));
+  }, []);
+  const togglePush = async () => {
+    setPushLoading(true);
+    if (pushOn) { await window.unsubscribeFromPush(); setPushOn(false); }
+    else {
+      const ok = await window.subscribeToPush(); setPushOn(ok);
+      if (ok) window.sendLocalNotification && window.sendLocalNotification(
+        "✓ Notificaciones activadas", "Recibirás alertas de tus viáticos.", "push-test"
+      );
+    }
+    setPushLoading(false);
+  };
   const u = window.findUser(userId);
   const c = window.findCentro(u.centro);
   const g = u.gerente ? window.findUser(u.gerente) : null;
@@ -9540,6 +9707,11 @@ function MProfile({ userId, onLogout }) {
       </div>
       <button className="btn" style={{width:"100%", justifyContent:"center", marginTop:14}} onClick={() => setPwdOpen(true)}><Icon name="settings" size={14}/> Cambiar contraseña</button>
       <button className="btn" style={{width:"100%", justifyContent:"center", marginTop:8}} onClick={onLogout}><Icon name="logout" size={14}/> Cerrar sesión</button>
+    <button className="btn ghost" style={{width:"100%",justifyContent:"center",marginTop:6,
+      color:pushOn?"var(--success)":"var(--text-3)"}} onClick={togglePush} disabled={pushLoading}>
+      <Icon name={pushOn?"check":"clock"} size={14}/>
+      {pushLoading?"...":pushOn?"Notificaciones push activas":"Activar notificaciones push"}
+    </button>
     </div>
   );
 }
@@ -9689,6 +9861,30 @@ function PerfilPage({ userId, onLogout }) {
   const c = window.findCentro(u.centro);
   const g = u.gerente ? window.findUser(u.gerente) : null;
   const mine = window.SOLICITUDES.filter(s => s.usuario === userId);
+  const [pushOn, setPushOn] = React.useState(!!window.pushEnabled);
+  const [pushLoading, setPushLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    if (window.checkPushStatus) window.checkPushStatus().then(() => setPushOn(!!window.pushEnabled));
+  }, []);
+
+  const togglePush = async () => {
+    setPushLoading(true);
+    if (pushOn) {
+      await window.unsubscribeFromPush();
+      setPushOn(false);
+    } else {
+      const ok = await window.subscribeToPush();
+      setPushOn(ok);
+      if (ok) window.sendLocalNotification && window.sendLocalNotification(
+        "✓ Notificaciones activadas",
+        "Recibirás alertas cuando haya solicitudes pendientes o cambios en tus anticipos.",
+        "push-test"
+      );
+    }
+    setPushLoading(false);
+  };
+
   const [pwdOpen, setPwdOpen] = React.useState(false);
   return (
     <>
@@ -9700,7 +9896,12 @@ function PerfilPage({ userId, onLogout }) {
         </div>
         <div className="row">
           <button className="btn" onClick={() => setPwdOpen(true)}><Icon name="settings" size={13}/> Cambiar contraseña</button>
-          <button className="btn" onClick={onLogout}><Icon name="logout" size={13}/> Cerrar sesión</button>
+          <button className="btn ghost" onClick={togglePush} disabled={pushLoading}
+              style={{color:pushOn?"var(--success)":"var(--text-2)"}}>
+              <Icon name={pushOn?"check":"clock"} size={13}/>
+              {pushLoading?"...":pushOn?"Notificaciones ON":"Activar notificaciones"}
+            </button>
+            <button className="btn" onClick={onLogout}><Icon name="logout" size={13}/> Cerrar sesión</button>
         </div>
       </div>
 
@@ -10833,6 +11034,7 @@ function App() {
         await window.loadFromDB();
         await window.loadSolicitudes();
         await window.loadReglas();
+        if (window.checkPushStatus) window.checkPushStatus();
         setDbLoaded(true);  // ← fuerza re-render con datos reales
       } else {
         // Sin sesión: cargar catálogos y mostrar login
