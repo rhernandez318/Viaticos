@@ -11035,6 +11035,13 @@ function App() {
         await window.loadSolicitudes();
         await window.loadReglas();
         if (window.checkPushStatus) window.checkPushStatus();
+        // Si RLS bloqueó todo (0 catálogos = sesión inválida), forzar re-login
+        if (window.USUARIOS.length === 0 && window.CENTROS.length === 0) {
+          console.warn("Sesión inválida — redirigiendo al login");
+          await window.sb.auth.signOut();
+          setSession(null);
+          return;
+        }
         setDbLoaded(true);  // ← fuerza re-render con datos reales
       } else {
         // Sin sesión: cargar catálogos y mostrar login
@@ -11047,12 +11054,15 @@ function App() {
   // ── Detectar evento PASSWORD_RECOVERY (link de email) ─────────────────────
   React.useEffect(() => {
     if (!window.sb) return;
-    const { data: sub } = window.sb.auth.onAuthStateChange((event) => {
+    const { data: sub } = window.sb.auth.onAuthStateChange((event, session) => {
       if (event === "PASSWORD_RECOVERY") {
         setRecoveryMode(true);
         setSession(null);
-      } else if (event === "SIGNED_OUT") {
+      } else if (event === "SIGNED_OUT" || event === "TOKEN_REFRESHED" && !session) {
         setRecoveryMode(false);
+        setSession(null);  // fuerza vuelta al login
+      } else if (event === "TOKEN_REFRESHED" && session) {
+        window.SB_SESSION = session.user;
       }
     });
     return () => sub.subscription.unsubscribe();
