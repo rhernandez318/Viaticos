@@ -3650,7 +3650,7 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
             subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
             cuenta: it.cuenta, confianza: it.confianza||0.9,
             archivo_url: it.archivo_url || null,
-          })), { onConflict: "uuid", ignoreDuplicates: true }
+          })), { onConflict: "uuid" }
         );
       }
       // NO actualizamos saldo_pendiente del anticipo padre aquí
@@ -3989,12 +3989,13 @@ function NuevoReembolso({ setPage, userId }) {
       // Guardar CFDIs
       if (items.length > 0) {
         const cfdiRows = items.map(it => ({
-          solicitud_id: id, uuid: it.uuid||it.uuidFull||("SIN-UUID-"+Date.now()),
+          solicitud_id: id, uuid: it.uuid||it.uuidFull||("SIN-UUID-"+Date.now()+"-"+Math.random().toString(36).slice(2,6)),
           emisor: it.emisor, concepto: it.concepto,
           subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
           cuenta: it.cuenta, confianza: it.confianza||0.9,
+          archivo_url: it.archivo_url || null,
         }));
-        await window.sb.from("comprobantes_cfdi").upsert(cfdiRows, { onConflict: "uuid", ignoreDuplicates: true });
+        await window.sb.from("comprobantes_cfdi").upsert(cfdiRows, { onConflict: "uuid" });
       }
     }
     const nueva = {
@@ -4303,7 +4304,7 @@ function CierreAnticipo({ setPage, userId, anticipoId }) {
           cuenta: "1110000001",
           confianza: 1.0,
           archivo_url: archivoUrl,
-        }], { onConflict: "uuid", ignoreDuplicates: true });
+        }], { onConflict: "uuid" });
       }
     }
 
@@ -7739,7 +7740,7 @@ function MobileScan({ userId, onDone }) {
             subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
             cuenta: it.cuenta, confianza: it.confianza||0.9,
             archivo_url: it.archivo_url || null,
-          })), { onConflict: "uuid", ignoreDuplicates: true }
+          })), { onConflict: "uuid" }
         );
       }
     }
@@ -9160,7 +9161,7 @@ function MNuevaComprobacion({ userId, onDone, showSnack }) {
             subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
             cuenta: it.cuenta, confianza: it.confianza||0.9,
             archivo_url: it.archivo_url || null,
-          })), { onConflict: "uuid", ignoreDuplicates: true }
+          })), { onConflict: "uuid" }
         );
       }
       // Actualizar saldo del anticipo padre
