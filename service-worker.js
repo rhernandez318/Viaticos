@@ -2,7 +2,7 @@
 // Estrategia: network-first para el HTML (siempre la última versión)
 //             cache-first para librerías CDN (React, Babel, Supabase)
 
-const VERSION = "v2026.05.27-3";
+const VERSION = "v2026.05.27-4";
 const CACHE_NAME = "viaticos-" + VERSION;
 
 // Recursos críticos que pre-cacheamos

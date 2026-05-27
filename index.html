@@ -1703,6 +1703,23 @@ async function checkPushStatus() {
   window.pushEnabled = ("Notification" in window) && Notification.permission === "granted";
 }
 
+async function sendLocalNotification(title, body, tag) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    reg.showNotification(title, {
+      body,
+      tag: tag || "viaticos",
+      renotify: true,
+      requireInteraction: true,
+      vibrate: [200, 100, 200],
+      icon: "/Viaticos/icons/icon-192.png",
+      badge: "/Viaticos/icons/icon-192.png",
+      data: { url: "/Viaticos/" },
+    });
+  } catch(e) { console.warn("sendLocalNotification:", e.message); }
+}
+
 Object.assign(window, { subscribeToPush, unsubscribeFromPush, checkPushStatus, sendLocalNotification });
 // ── Notificar via Cloudflare Worker (push real al dispositivo) ────────────────
 const WORKER_NOTIFY_URL = "https://viaticos-admin.rhernandez-e52.workers.dev/notify";
