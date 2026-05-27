@@ -1664,29 +1664,47 @@ async function initFCM() {
 async function subscribeToPush() {
   try {
     const perm = await Notification.requestPermission();
-    if (perm !== "granted") return false;
+    if (perm !== "granted") { console.warn("[FCM] Permiso denegado"); return false; }
+
     const messaging = await initFCM();
-    if (!messaging) return false;
-    const reg = await navigator.serviceWorker.getRegistration();
-    const token = await messaging.getToken({ vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg });
-    if (!token) { console.warn("FCM: no se obtuvo token"); return false; }
-    console.log("[FCM] Token:", token.slice(0,20)+"...");
-    if (window.sb && window.SB_SESSION) {
-      const { error } = await window.sb.from("push_subscriptions").upsert({
-        usuario_id: window.SB_SESSION.id,
-        subscription: token,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "usuario_id" });
-      if (error) console.error("[FCM] Error guardando token:", error);
-      else console.log("[FCM] Token guardado ✓");
+    if (!messaging) { console.warn("[FCM] Firebase no disponible"); return false; }
+
+    // Registrar firebase-messaging-sw.js explícitamente
+    let fbReg;
+    try {
+      fbReg = await navigator.serviceWorker.register("/Viaticos/firebase-messaging-sw.js", { scope: "/Viaticos/" });
+      console.log("[FCM] firebase-messaging-sw.js registrado ✓");
+    } catch(e) {
+      console.warn("[FCM] Error registrando SW de Firebase:", e.message);
+      fbReg = await navigator.serviceWorker.getRegistration();
     }
+
+    const token = await messaging.getToken({ vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: fbReg });
+    if (!token) { console.warn("[FCM] No se obtuvo token"); return false; }
+    console.log("[FCM] Token:", token.slice(0,20)+"...");
+
+    // Guardar en Supabase — esperar a que SB_SESSION esté disponible
+    const userId = window.SB_SESSION?.id;
+    if (!userId) { console.warn("[FCM] SB_SESSION no disponible, token no guardado"); return false; }
+
+    const { error } = await window.sb.from("push_subscriptions").upsert({
+      usuario_id: userId,
+      subscription: token,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "usuario_id" });
+
+    if (error) { console.error("[FCM] Error guardando token:", error); return false; }
+    console.log("[FCM] Token guardado en Supabase ✓ para usuario", userId);
+
+    // Manejar mensajes en primer plano
     messaging.onMessage(payload => {
       const n = payload.notification || payload.data || {};
       sendLocalNotification(n.title || "Viaticos", n.body || "", "fcm-fg");
     });
+
     window.pushEnabled = true;
     return true;
-  } catch(e) { console.error("[FCM] Error:", e.message); return false; }
+  } catch(e) { console.error("[FCM] Error en subscribeToPush:", e.message, e); return false; }
 }
 
 async function unsubscribeFromPush() {
@@ -2519,32 +2537,36 @@ function generarNotificaciones(role, userId) {
     });
 
     // ── 1b. Anticipos recién liberados (dispersados por tesorería) ───────────
+    const _leidas = (() => { try { return new Set(JSON.parse(localStorage.getItem("viaticos_notif_leidas")||"[]")); } catch{return new Set();} })();
+
     mias.filter(s =>
       s.tipo === "anticipo" && s.status === "liberado" &&
-      s.updatedAt && (hoy - s.updatedAt) < 3 * 86400000  // últimos 3 días
+      s.updatedAt && (hoy - s.updatedAt) < 3 * 86400000
     ).forEach(s => {
+      if (_leidas.has(s.id)) return;
       msgs.push({
         id:     "liberado_" + s.id,
         tipo:   "success",
         icon:   "check",
-        titulo: `Anticipo dispersado`,
-        texto:  `${s.id} · ${window.fmtMXN(s.monto)} depositados en tu cuenta — recuerda comprobar antes de ${new Date(s.fecha.getTime()+15*86400000).toLocaleDateString("es-MX")}`,
+        titulo: `Anticipo dispersado — ${s.id}`,
+        texto:  `${window.fmtMXN(s.monto)} depositados en tu cuenta · recuerda comprobar antes del ${new Date(s.fecha.getTime()+15*86400000).toLocaleDateString("es-MX")}`,
         folio:  s.id,
         ts:     s.updatedAt || s.fecha,
       });
     });
 
-    // ── 1c. Reembolsos liberados (dinero de vuelta) ───────────────────────
+    // ── 1c. Reembolsos liberados ───────────────────────────────────────────
     mias.filter(s =>
       s.tipo === "reembolso" && s.status === "liberado" &&
       s.updatedAt && (hoy - s.updatedAt) < 3 * 86400000
     ).forEach(s => {
+      if (_leidas.has(s.id)) return;
       msgs.push({
         id:     "reembolso_ok_" + s.id,
         tipo:   "success",
         icon:   "check",
-        titulo: `Reembolso aprobado`,
-        texto:  `${s.id} · ${window.fmtMXN(s.monto)} serán depositados según el ciclo de pago`,
+        titulo: `Reembolso aprobado — ${s.id}`,
+        texto:  `${window.fmtMXN(s.monto)} serán depositados según el ciclo de pago`,
         folio:  s.id,
         ts:     s.updatedAt || s.fecha,
       });
@@ -2668,8 +2690,24 @@ function NotifPanel({ role, userId, onClose, onNavigate, leidas, setLeidas }) {
     [role, userId]
   );
   const leidasSet = leidas || new Set();
-  const marcarLeida = (id) => setLeidas && setLeidas(prev => new Set([...prev, id]));
-  const marcarTodas = () => setLeidas && setLeidas(new Set(notifs.map(n => n.id)));
+  const marcarLeida = (id) => {
+    setLeidas && setLeidas(prev => new Set([...prev, id]));
+    try {
+      const folio = notifs.find(n=>n.id===id)?.folio || id;
+      const l = JSON.parse(localStorage.getItem("viaticos_notif_leidas")||"[]");
+      if (!l.includes(folio)) localStorage.setItem("viaticos_notif_leidas", JSON.stringify([...l, folio]));
+    } catch{}
+  };
+  const marcarTodas = () => {
+    const allIds = notifs.map(n => n.id);
+    setLeidas && setLeidas(new Set(allIds));
+    try {
+      const folios = notifs.map(n=>n.folio||n.id).filter(Boolean);
+      const l = JSON.parse(localStorage.getItem("viaticos_notif_leidas")||"[]");
+      const merged = [...new Set([...l, ...folios])];
+      localStorage.setItem("viaticos_notif_leidas", JSON.stringify(merged));
+    } catch{}
+  };
 
   const colores = {
     danger: { bg:"rgba(226,75,74,.12)", border:"rgba(226,75,74,.4)", text:"#e24b4a", dot:"#e24b4a" },
@@ -4588,12 +4626,12 @@ function GerenteBandeja({ openDetail, userId, role }) {
     if (!rechazoModal.motivo.trim()) return;
     const sid = rechazoModal.id;
     const motivo = rechazoModal.motivo.trim();
+    const nuevoComentario = {
+      ts: new Date().toISOString(),
+      userId, nombre: (window.findUser(userId)||{}).nombre || "Gerente",
+      texto: motivo, accion: "rechazado"
+    };
     if (window.sb) {
-      const nuevoComentario = {
-        ts: new Date().toISOString(),
-        userId, nombre: (window.findUser(userId)||{}).nombre || "Gerente",
-        texto: motivo, accion: "rechazado"
-      };
       const s_actual = window.SOLICITUDES.find(x => x.id === sid);
       const comentariosActuales = s_actual?.comentarios || [];
       const nuevosComentarios = [...comentariosActuales, nuevoComentario];
@@ -8070,12 +8108,14 @@ function MUserHome({ userId, push, setTab }) {
           }}>Activar</button>
         </div>
       )}
-      {recienLiberados.length > 0 && recienLiberados.map(s => (
+      {recienLiberados.filter(s => {
+          try { const l=JSON.parse(localStorage.getItem("viaticos_notif_leidas")||"[]"); return !l.includes(s.id); } catch{return true;}
+        }).map(s => (
         <div key={s.id} style={{background:"rgba(34,197,94,.12)",border:"1px solid rgba(34,197,94,.4)",
           borderRadius:10,padding:"10px 14px",marginBottom:10,fontSize:12.5}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
             <Icon name="check" size={14} style={{color:"#16a34a",flexShrink:0}}/>
-            <div>
+            <div style={{flex:1}}>
               <div style={{fontWeight:600,color:"#16a34a",fontSize:13}}>
                 {s.tipo==="anticipo" ? "Anticipo dispersado ✓" : "Reembolso aprobado ✓"}
               </div>
@@ -8083,6 +8123,14 @@ function MUserHome({ userId, push, setTab }) {
                 {s.id} · {window.fmtMXN(s.monto)}{s.tipo==="anticipo" ? " — recuerda comprobar" : " — en camino"}
               </div>
             </div>
+            <button style={{background:"none",border:"none",color:"var(--text-3)",cursor:"pointer",
+              fontSize:16,padding:"0 4px",flexShrink:0}} onClick={()=>{
+                try {
+                  const l=JSON.parse(localStorage.getItem("viaticos_notif_leidas")||"[]");
+                  localStorage.setItem("viaticos_notif_leidas", JSON.stringify([...l,s.id]));
+                } catch{}
+                window.location.reload();
+              }}>×</button>
           </div>
         </div>
       ))}
