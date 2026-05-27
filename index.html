@@ -9832,6 +9832,12 @@ function MobileApp({ userId, role, onLogout, setPage, openDetail }) {
       if (tab === "equipo")  { headerTitle = "Mi equipo"; body = <MGerenteEquipo userId={userId} push={push}/>; }
       if (tab === "hist")    { headerTitle = "Historial"; body = <MGerenteHistorial userId={userId} push={push}/>; }
       if (tab === "profile") { headerTitle = "Mi perfil"; body = <MProfile userId={userId} onLogout={onLogout}/>; }
+      if (tab === "mis-solicitudes") { headerTitle = "Mis solicitudes"; body = <MUserList userId={userId} push={push}/>; }
+      if (tab === "list")            { headerTitle = "Mis solicitudes"; body = <MUserList userId={userId} push={push}/>; }
+      if (tab === "anticipos")       { headerTitle = "Solicitar anticipo"; body = <MNuevoAnticipo userId={userId} onDone={()=>setTab("home")} showSnack={showSnack}/>; }
+      if (tab === "reembolsos")      { headerTitle = "Nuevo reembolso"; body = <MNuevoReembolso userId={userId} onDone={()=>setTab("home")} showSnack={showSnack}/>; }
+      if (tab === "comprobaciones")  { headerTitle = "Comprobaciones"; body = <MNuevaComprobacion userId={userId} onDone={()=>setTab("home")} showSnack={showSnack}/>; }
+      if (tab === "reportes")        { body = <MReportes role={role} userId={userId}/>; }
     } else if (role === "tesoreria") {
       if (tab === "home")     body = <MTesoreriaLiberar push={push} showSnack={showSnack}/>;
       if (tab === "pagados")  { headerTitle = "Pagados"; body = <MTesoreriaPagados push={push}/>; }
