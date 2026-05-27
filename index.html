@@ -1143,6 +1143,9 @@ table.t {
 *::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
 
 </style>
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
 </head>
 <body>
 <div id="root"></div>
@@ -1633,76 +1636,71 @@ Object.assign(window, {
   calcSaldo, generarPolizaLiquidacion, getBancosAccount,
   insertBitacora, REGLAS, loadReglas,
 });
-// ── Web Push — suscripción ────────────────────────────────────────────────────
-const VAPID_PUBLIC_KEY = "BILgkVr4zNcU9-ofdX0lRtG8r4vFMd5cfltW_LXkJQIXy5uMnF7El83OMZdz7oTWfRs5Ssm-eZ0WROHTbasMxQY";
-
-function urlBase64ToUint8Array(b64) {
-  const pad = "=".repeat((4 - b64.length % 4) % 4);
-  const b64s = (b64 + pad).replace(/-/g,"+").replace(/_/g,"/");
-  const raw = atob(b64s);
-  return Uint8Array.from(Array.from(raw).map(c => c.charCodeAt(0)));
-}
+// -- Firebase Cloud Messaging --
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyD5WCpMWnQkwLJplAtbOXrjU2_5gwSRI2w",
+  authDomain: "viaticos-zapata.firebaseapp.com",
+  projectId: "viaticos-zapata",
+  storageBucket: "viaticos-zapata.firebasestorage.app",
+  messagingSenderId: "318139943193",
+  appId: "1:318139943193:web:3fade17ff5c1e89a805d88",
+};
+// TODO: reemplaza con tu VAPID key: Firebase Console > Project Settings > Cloud Messaging > Web configuration > Generate key pair
+const FCM_VAPID_KEY = "BC4H1SRGR-megh4PQ-N4BpczTZkkZF3F8cfmS7bW1WL0Zp5rnfsN59Q7L9cKkUBaoo7NZ-2x0H_ja23MtUWinmQ";
 
 window.pushEnabled = false;
+let _fbMessaging = null;
+
+async function initFCM() {
+  if (_fbMessaging) return _fbMessaging;
+  if (!window.firebase) { console.warn("Firebase SDK no cargado"); return null; }
+  try {
+    const app = firebase.apps.length ? firebase.apps[0] : firebase.initializeApp(FIREBASE_CONFIG);
+    _fbMessaging = firebase.messaging(app);
+    return _fbMessaging;
+  } catch(e) { console.warn("FCM init:", e.message); return null; }
+}
 
 async function subscribeToPush() {
-  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return false;
   try {
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") return false;
-    const reg = await navigator.serviceWorker.ready;
-    const existing = await reg.pushManager.getSubscription();
-    if (existing) { window.pushEnabled = true; return true; }
-    const sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-    });
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") return false;
+    const messaging = await initFCM();
+    if (!messaging) return false;
+    const reg = await navigator.serviceWorker.getRegistration();
+    const token = await messaging.getToken({ vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg });
+    if (!token) { console.warn("FCM: no se obtuvo token"); return false; }
+    console.log("[FCM] Token:", token.slice(0,20)+"...");
     if (window.sb && window.SB_SESSION) {
-      await window.sb.from("push_subscriptions").upsert({
+      const { error } = await window.sb.from("push_subscriptions").upsert({
         usuario_id: window.SB_SESSION.id,
-        subscription: JSON.stringify(sub),
+        subscription: token,
         updated_at: new Date().toISOString(),
       }, { onConflict: "usuario_id" });
+      if (error) console.error("[FCM] Error guardando token:", error);
+      else console.log("[FCM] Token guardado ✓");
     }
+    messaging.onMessage(payload => {
+      const n = payload.notification || payload.data || {};
+      sendLocalNotification(n.title || "Viaticos", n.body || "", "fcm-fg");
+    });
     window.pushEnabled = true;
     return true;
-  } catch(e) { console.warn("Push error:", e.message); return false; }
+  } catch(e) { console.error("[FCM] Error:", e.message); return false; }
 }
 
 async function unsubscribeFromPush() {
   try {
-    const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
-    if (sub) await sub.unsubscribe();
-    if (window.sb && window.SB_SESSION) {
+    const messaging = await initFCM();
+    if (messaging) await messaging.deleteToken();
+    if (window.sb && window.SB_SESSION)
       await window.sb.from("push_subscriptions").delete().eq("usuario_id", window.SB_SESSION.id);
-    }
     window.pushEnabled = false; return true;
   } catch(e) { return false; }
 }
 
 async function checkPushStatus() {
-  if (!("PushManager" in window)) return;
-  try {
-    const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
-    window.pushEnabled = !!sub;
-  } catch(e) {}
-}
-
-async function sendLocalNotification(title, body, tag) {
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
-  const reg = await navigator.serviceWorker.ready;
-  reg.showNotification(title, {
-    body,
-    tag: tag || "viaticos",
-    renotify: true,
-    requireInteraction: true,
-    vibrate: [200, 100, 200],
-    icon: "/Viaticos/icons/icon-192.png",
-    badge: "/Viaticos/icons/icon-192.png",
-    data: { url: "/Viaticos/" },
-  });
+  window.pushEnabled = ("Notification" in window) && Notification.permission === "granted";
 }
 
 Object.assign(window, { subscribeToPush, unsubscribeFromPush, checkPushStatus, sendLocalNotification });
@@ -1713,6 +1711,7 @@ const WORKER_SECRET_TOKEN = "viaticos-zapata-push-2026"; // debe coincidir con W
 async function notifyUser(userId, title, body, tag) {
   // Primero intentar push via Worker (funciona aunque app esté cerrada)
   try {
+    console.log("[Notify] Enviando push a userId:", userId, "| título:", title);
     const res = await fetch(WORKER_NOTIFY_URL, {
       method: "POST",
       headers: {
@@ -1725,8 +1724,9 @@ async function notifyUser(userId, title, body, tag) {
       }),
     });
     const data = await res.json();
-    if (data.sent > 0) return; // Push enviado — no necesitamos local notif
-  } catch(e) { /* Worker no disponible — fallback a local */ }
+    console.log("[Notify] Worker response:", data);
+    if (data.sent > 0) return;
+  } catch(e) { console.warn("[Notify] Worker error:", e.message); }
 
   // Fallback: notificación local (solo si app está abierta)
   window.sendLocalNotification && window.sendLocalNotification(title, body, tag);
