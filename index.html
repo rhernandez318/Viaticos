@@ -3152,6 +3152,21 @@ function SolicitarAnticipo({ setPage, userId }) {
 
   return (
     <>
+
+      {/* Banner de notificaciones — solo si nunca se ha pedido permiso */}
+      {typeof Notification !== "undefined" && Notification.permission === "default" && (
+        <div style={{background:"var(--accent-soft)",border:"1px solid var(--accent)",
+          borderRadius:8,padding:"10px 16px",marginBottom:14,
+          display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,fontSize:13}}>
+          <span><Icon name="clock" size={13}/> Activa las notificaciones para recibir alertas de tus solicitudes</span>
+          <button className="btn sm primary" onClick={async () => {
+            const ok = await window.subscribeToPush();
+            if (ok) window.startNotifPolling && window.startNotifPolling(
+              window.SB_SESSION?.rol || "usuario", window.SB_SESSION?.id
+            );
+          }}>Activar</button>
+        </div>
+      )}
       {toast && <div style={{position:"fixed", bottom:24, right:24, background:"var(--success-soft)", border:"1px solid oklch(from var(--success) l c h / 0.4)", color:"var(--success)", padding:"12px 18px", borderRadius:"var(--r-lg)", zIndex:100, fontWeight:500, fontSize:13}}>{toast}</div>}
       {_borrInit && (
         <div style={{background:"var(--info-soft)",border:"1px solid var(--info)",borderRadius:8,
@@ -7968,6 +7983,19 @@ function MUserHome({ userId, push, setTab }) {
   const enProceso = mine.filter(s => ["solicitado","autorizado"].includes(s.status)).length;
   return (
     <div className="m-pad">
+      {typeof Notification !== "undefined" && Notification.permission === "default" && (
+        <div style={{background:"var(--accent-soft)",border:"1px solid var(--accent)",
+          borderRadius:8,padding:"10px 14px",marginBottom:10,
+          display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,fontSize:12.5}}>
+          <span><Icon name="clock" size={13}/> Activa notificaciones para estar al tanto de tus viáticos</span>
+          <button className="btn sm primary" onClick={async()=>{
+            const ok = await window.subscribeToPush();
+            if (ok) window.startNotifPolling && window.startNotifPolling(
+              window.SB_SESSION?.rol||"usuario", window.SB_SESSION?.id
+            );
+          }}>Activar</button>
+        </div>
+      )}
       {recienLiberados.length > 0 && recienLiberados.map(s => (
         <div key={s.id} style={{background:"rgba(34,197,94,.12)",border:"1px solid rgba(34,197,94,.4)",
           borderRadius:10,padding:"10px 14px",marginBottom:10,fontSize:12.5}}>
@@ -8567,6 +8595,19 @@ function MContadorCatalogo() {
 
   return (
     <div className="m-pad">
+      {typeof Notification !== "undefined" && Notification.permission === "default" && (
+        <div style={{background:"var(--accent-soft)",border:"1px solid var(--accent)",
+          borderRadius:8,padding:"10px 14px",marginBottom:10,
+          display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,fontSize:12.5}}>
+          <span><Icon name="clock" size={13}/> Activa notificaciones para estar al tanto de tus viáticos</span>
+          <button className="btn sm primary" onClick={async()=>{
+            const ok = await window.subscribeToPush();
+            if (ok) window.startNotifPolling && window.startNotifPolling(
+              window.SB_SESSION?.rol||"usuario", window.SB_SESSION?.id
+            );
+          }}>Activar</button>
+        </div>
+      )}
       <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", margin:"4px 4px 10px"}}>
         <div style={{fontSize:11, textTransform:"uppercase", letterSpacing:"0.08em", color:"var(--text-3)", fontWeight:600}}>Catálogo de gastos</div>
         <button className="btn sm primary" onClick={() => openEdit(null)}><Icon name="plus" size={11}/> Nueva</button>
@@ -9898,11 +9939,17 @@ function PerfilPage({ userId, onLogout }) {
     } else {
       const ok = await window.subscribeToPush();
       setPushOn(ok);
-      if (ok) window.sendLocalNotification && window.sendLocalNotification(
-        "✓ Notificaciones activadas",
-        "Recibirás alertas cuando haya solicitudes pendientes o cambios en tus anticipos.",
-        "push-test"
-      );
+      if (ok) {
+        window.sendLocalNotification && window.sendLocalNotification(
+          "✓ Notificaciones activadas",
+          "Recibirás alertas cuando haya solicitudes pendientes o cambios en tus anticipos.",
+          "push-test"
+        );
+        window.startNotifPolling && window.startNotifPolling(
+          window.SB_SESSION?.rol || "usuario",
+          window.SB_SESSION?.id
+        );
+      }
     }
     setPushLoading(false);
   };
@@ -10419,6 +10466,89 @@ async function saveCfdiRows(rows) {
   }
 }
 window.saveCfdiRows = saveCfdiRows;
+
+// ── Polling de notificaciones (cada 2 minutos) ───────────────────────────────
+window._notifLastCheck = Date.now();
+window._notifPollingTimer = null;
+
+async function checkNotificacionesPendientes(role, userId) {
+  if (!window.sb || !window.SB_SESSION) return;
+  if (Notification.permission !== "granted") return;
+
+  try {
+    const desde = new Date(window._notifLastCheck).toISOString();
+    window._notifLastCheck = Date.now();
+
+    if (role === "gerente" || role === "admin") {
+      // Solicitudes nuevas pendientes de aprobación
+      const { data } = await window.sb
+        .from("solicitudes")
+        .select("id, concepto, tipo, usuarios(nombre)")
+        .eq("status", "solicitado")
+        .gt("created_at", desde)
+        .limit(5);
+
+      if (data && data.length > 0) {
+        const reg = await navigator.serviceWorker.ready;
+        reg.showNotification("📋 Nueva solicitud pendiente", {
+          body: data.length === 1
+            ? `${data[0].usuarios?.nombre || "Un colaborador"} solicita aprobación: ${data[0].concepto || data[0].id}`
+            : `${data.length} solicitudes nuevas esperan tu aprobación`,
+          icon: "/Viaticos/icons/icon-192.png",
+          badge: "/Viaticos/icons/icon-192.png",
+          tag: "nuevas-solicitudes",
+          renotify: true,
+          data: { url: "/Viaticos/" },
+        });
+      }
+    }
+
+    if (role === "usuario" || role === "gerente") {
+      // Cambios de status en solicitudes propias
+      const { data } = await window.sb
+        .from("solicitudes")
+        .select("id, status, tipo")
+        .eq("usuario_id", userId)
+        .in("status", ["autorizado", "liberado", "rechazado"])
+        .gt("updated_at", desde)
+        .limit(5);
+
+      if (data && data.length > 0) {
+        for (const s of data) {
+          const icons = { autorizado: "✅", liberado: "💰", rechazado: "❌" };
+          const msgs  = { autorizado: "fue autorizado", liberado: "fue dispersado", rechazado: "fue rechazado" };
+          const reg = await navigator.serviceWorker.ready;
+          reg.showNotification(`${icons[s.status]} Anticipo ${msgs[s.status]}`, {
+            body: `${s.id} — ${msgs[s.status]}`,
+            icon: "/Viaticos/icons/icon-192.png",
+            tag: `status-${s.id}`,
+            renotify: false,
+            data: { url: "/Viaticos/" },
+          });
+        }
+      }
+    }
+  } catch(e) { /* silencioso */ }
+}
+
+function startNotifPolling(role, userId) {
+  if (window._notifPollingTimer) clearInterval(window._notifPollingTimer);
+  // Primera verificación 30s después del login, luego cada 2 min
+  setTimeout(() => checkNotificacionesPendientes(role, userId), 30000);
+  window._notifPollingTimer = setInterval(
+    () => checkNotificacionesPendientes(role, userId), 
+    2 * 60 * 1000
+  );
+}
+
+function stopNotifPolling() {
+  if (window._notifPollingTimer) {
+    clearInterval(window._notifPollingTimer);
+    window._notifPollingTimer = null;
+  }
+}
+
+Object.assign(window, { startNotifPolling, stopNotifPolling, checkNotificacionesPendientes });
 
 function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
   // Perfil — disponible para todos
@@ -11076,6 +11206,10 @@ function App() {
         await window.loadSolicitudes();
         await window.loadReglas();
         if (window.checkPushStatus) window.checkPushStatus();
+        // Iniciar polling de notificaciones si el usuario ya activó permisos
+        if (Notification.permission === "granted") {
+          window.startNotifPolling && window.startNotifPolling(role, userId);
+        }
         // Si RLS bloqueó todo (0 catálogos = sesión inválida), forzar re-login
         if (window.USUARIOS.length === 0 && window.CENTROS.length === 0) {
           console.warn("Sesión inválida — redirigiendo al login");
@@ -11138,6 +11272,7 @@ function App() {
   };
 
   const handleLogout = async () => {
+    window.stopNotifPolling && window.stopNotifPolling();
     await window.sbLogout();
     setSession(null);
     setPage("dash");
