@@ -1634,7 +1634,7 @@ Object.assign(window, {
   insertBitacora, REGLAS, loadReglas,
 });
 // ── Web Push — suscripción ────────────────────────────────────────────────────
-const VAPID_PUBLIC_KEY = "BEl62iUYgUivxIkv69yViEuiBIa-Ib9-SkvMeAtA3LFgDzkrxZJjSgSnfckjBFfRnLYlxLVpNEr1RNkdFBxkiA";
+const VAPID_PUBLIC_KEY = "BILgkVr4zNcU9-ofdX0lRtG8r4vFMd5cfltW_LXkJQIXy5uMnF7El83OMZdz7oTWfRs5Ssm-eZ0WROHTbasMxQY";
 
 function urlBase64ToUint8Array(b64) {
   const pad = "=".repeat((4 - b64.length % 4) % 4);
@@ -1706,6 +1706,35 @@ async function sendLocalNotification(title, body, tag) {
 }
 
 Object.assign(window, { subscribeToPush, unsubscribeFromPush, checkPushStatus, sendLocalNotification });
+// ── Notificar via Cloudflare Worker (push real al dispositivo) ────────────────
+const WORKER_NOTIFY_URL = "https://viaticos-admin.rhernandez-e52.workers.dev/notify";
+const WORKER_SECRET_TOKEN = "viaticos-zapata-push-2026"; // debe coincidir con WORKER_SECRET en Cloudflare
+
+async function notifyUser(userId, title, body, tag) {
+  // Primero intentar push via Worker (funciona aunque app esté cerrada)
+  try {
+    const res = await fetch(WORKER_NOTIFY_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + WORKER_SECRET_TOKEN,
+      },
+      body: JSON.stringify({
+        userIds: [userId], title, body: body || "", tag: tag || "viaticos",
+        url: "/Viaticos/",
+      }),
+    });
+    const data = await res.json();
+    if (data.sent > 0) return; // Push enviado — no necesitamos local notif
+  } catch(e) { /* Worker no disponible — fallback a local */ }
+
+  // Fallback: notificación local (solo si app está abierta)
+  window.sendLocalNotification && window.sendLocalNotification(title, body, tag);
+}
+
+window.notifyUser = notifyUser;
+
+
 
 
 
@@ -3144,6 +3173,14 @@ function SolicitarAnticipo({ setPage, userId }) {
     window.SOLICITUDES.unshift(nueva);
     limpiarBorrador();
     window.insertBitacora && window.insertBitacora(id, "solicitado", userId, `Monto: ${window.fmtMXN(totalDesg)}`);
+    // Notificar al gerente
+    const _gerenteId = window.findUser(userId)?.gerente;
+    if (_gerenteId) window.notifyUser && window.notifyUser(
+      _gerenteId,
+      "📋 Nueva solicitud pendiente",
+      `${window.findUser(userId)?.nombre || "Un colaborador"} solicita ${window.fmtMXN(totalDesg)} — ${form.concepto}`,
+      "nueva-" + id
+    );
     showToast("✓ Anticipo " + id + " enviado a tu gerente");
     setTimeout(()=>setPage&&setPage("dash"),1400);
   };
@@ -4510,6 +4547,13 @@ function GerenteBandeja({ openDetail, userId, role }) {
       }
     }
     window.insertBitacora && window.insertBitacora(id, "autorizado", gerenteId || userId, null);
+    // Notificar al usuario
+    window.notifyUser && window.notifyUser(
+      s.usuario,
+      "✅ Solicitud autorizada",
+      `${id} fue aprobada por tu gerente — ya puede ser liberada por tesorería`,
+      "autorizado-" + id
+    );
     s.status = "autorizado";
     if (s.tipo === "anticipo") s.saldoPendiente = s.saldoPendiente || s.monto;
     setItems(prev => prev.filter(x => x.id !== id));
@@ -4551,9 +4595,12 @@ function GerenteBandeja({ openDetail, userId, role }) {
     setItems(prev => prev.filter(x => x.id !== sid));
     showToast(`Solicitud ${sid} rechazada`, "warn");
     setRechazoModal(null);
-    window.sendLocalNotification && window.sendLocalNotification(
+    // Notificar al usuario via Worker (push real)
+    const _recSol = window.SOLICITUDES.find(x => x.id === sid);
+    if (_recSol) window.notifyUser && window.notifyUser(
+      _recSol.usuario,
       "❌ Solicitud rechazada",
-      `${sid} fue rechazada. Revisa los comentarios del gerente y corrige.`,
+      `${sid} fue rechazada — revisa los comentarios y corrige`,
       "rechazado-" + sid
     );
   };
@@ -4959,11 +5006,16 @@ function TesoreriaBandeja({ openDetail }) {
     }, 0);
     setToast(`✓ ${idsArr.length} solicitud${idsArr.length > 1 ? "es" : ""} liberada${idsArr.length > 1 ? "s" : ""} · ${window.fmtMXN(total)} dispersados`);
     setTimeout(() => setToast(null), 3500);
-    window.sendLocalNotification && window.sendLocalNotification(
-      "💰 Pagos procesados",
-      `${idsArr.length} solicitud${idsArr.length>1?"es":""} liberada${idsArr.length>1?"s":""} · ${window.fmtMXN(total)}`,
-      "liberados-batch"
-    );
+    // Notificar a cada usuario via Worker
+    for (const _libId of idsArr) {
+      const _libSol = window.SOLICITUDES.find(x => x.id === _libId);
+      if (_libSol) window.notifyUser && window.notifyUser(
+        _libSol.usuario,
+        _libSol.tipo === "anticipo" ? "💰 Anticipo dispersado" : "✅ Comprobación liberada",
+        `${_libId} · ${window.fmtMXN(_libSol.monto)} — procesado por tesorería`,
+        "liberado-" + _libId
+      );
+    }
   };
 
   const toggle = (id) => {
