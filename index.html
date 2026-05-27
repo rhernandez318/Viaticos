@@ -3254,12 +3254,14 @@ function CompUploader({ onAdd, solicitudId }) {
         const ext = file.name.split(".").pop();
         const uid = (solicitudId || "tmp") + "-" + Date.now();
         const path = `${uid}.${ext}`;
-        const { error: upErr } = await window.sb.storage.from("comprobantes").upload(path, file, { upsert: true });
+        console.log("[Upload] Subiendo:", path, file.size, "bytes,", file.type);
+        const { error: upErr, data: upData } = await window.sb.storage.from("comprobantes").upload(path, file, { upsert: true });
         if (!upErr) {
           const { data: { publicUrl } } = window.sb.storage.from("comprobantes").getPublicUrl(path);
           archivoUrl = publicUrl;
+          console.log("[Upload] OK:", publicUrl);
         } else {
-          console.warn("Storage upload error:", upErr.message);
+          console.error("[Upload] FAIL:", upErr.message, upErr);
         }
       }
 
@@ -3642,16 +3644,17 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
 
       // Guardar CFDIs
       if (itemsValidos.length > 0) {
-        await window.sb.from("comprobantes_cfdi").upsert(
-          itemsValidos.map(it => ({
+        const cfdiPayload = itemsValidos.map(it => ({
             solicitud_id: id,
             uuid: it.uuidFull || it.uuid || ("SIN-UUID-" + Date.now() + "-" + Math.random().toString(36).slice(2,6)),
             emisor: it.emisor, concepto: it.concepto,
             subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
             cuenta: it.cuenta, confianza: it.confianza||0.9,
             archivo_url: it.archivo_url || null,
-          })), { onConflict: "uuid" }
-        );
+          }));
+        console.log("[Comprobacion] CFDI rows:", cfdiPayload);
+        const { error: cfdiErr } = await window.sb.from("comprobantes_cfdi").upsert(cfdiPayload, { onConflict: "uuid" });
+        if (cfdiErr) console.error("[Comprobacion] CFDI error:", cfdiErr);
       }
       // NO actualizamos saldo_pendiente del anticipo padre aquí
       // Se actualizará cuando tesorería libere la comprobación
@@ -3995,7 +3998,10 @@ function NuevoReembolso({ setPage, userId }) {
           cuenta: it.cuenta, confianza: it.confianza||0.9,
           archivo_url: it.archivo_url || null,
         }));
-        await window.sb.from("comprobantes_cfdi").upsert(cfdiRows, { onConflict: "uuid" });
+        console.log("[Reembolso] CFDI rows to insert:", cfdiRows);
+        const { error: cfdiErr, data: cfdiData } = await window.sb.from("comprobantes_cfdi").upsert(cfdiRows, { onConflict: "uuid" }).select();
+        if (cfdiErr) console.error("[Reembolso] CFDI insert error:", cfdiErr);
+        else console.log("[Reembolso] CFDI inserted:", cfdiData);
       }
     }
     const nueva = {
