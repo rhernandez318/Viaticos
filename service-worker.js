@@ -2,7 +2,7 @@
 // Estrategia: network-first para el HTML (siempre la última versión)
 //             cache-first para librerías CDN (React, Babel, Supabase)
 
-const VERSION = "v2026.05.25-2";
+const VERSION = "v2026.05.25-3";
 const CACHE_NAME = "viaticos-" + VERSION;
 
 // Recursos críticos que pre-cacheamos
@@ -83,13 +83,15 @@ self.addEventListener('push', event => {
 
   const title   = data.title || 'Viáticos Casa Zapata';
   const options = {
-    body:    data.body    || 'Tienes una notificación pendiente.',
-    icon:    data.icon    || '/Viaticos/icons/icon-192.png',
-    badge:   data.badge   || '/Viaticos/icons/icon-192.png',
-    tag:     data.tag     || 'viaticos-notif',
-    renotify: true,
-    data:    data.data    || {},
-    actions: data.actions || [],
+    body:               data.body    || 'Tienes una notificación pendiente.',
+    icon:               data.icon    || '/Viaticos/icons/icon-192.png',
+    badge:              data.badge   || '/Viaticos/icons/icon-192.png',
+    tag:                data.tag     || 'viaticos-notif',
+    renotify:           true,
+    requireInteraction: true,
+    vibrate:            [200, 100, 200],
+    data:               data.data    || {},
+    actions:            data.actions || [],
   };
 
   event.waitUntil(self.registration.showNotification(title, options));

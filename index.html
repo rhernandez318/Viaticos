@@ -1694,9 +1694,14 @@ async function sendLocalNotification(title, body, tag) {
   if (!("Notification" in window) || Notification.permission !== "granted") return;
   const reg = await navigator.serviceWorker.ready;
   reg.showNotification(title, {
-    body, tag: tag || "viaticos", renotify: true,
+    body,
+    tag: tag || "viaticos",
+    renotify: true,
+    requireInteraction: true,
+    vibrate: [200, 100, 200],
     icon: "/Viaticos/icons/icon-192.png",
     badge: "/Viaticos/icons/icon-192.png",
+    data: { url: "/Viaticos/" },
   });
 }
 
@@ -10490,14 +10495,17 @@ async function checkNotificacionesPendientes(role, userId) {
 
       if (data && data.length > 0) {
         const reg = await navigator.serviceWorker.ready;
+        const notifBody = data.length === 1
+            ? `${data[0].usuarios?.nombre || "Un colaborador"} solicita aprobación · ${data[0].concepto || data[0].id}`
+            : `${data.length} solicitudes nuevas esperan tu aprobación`;
         reg.showNotification("📋 Nueva solicitud pendiente", {
-          body: data.length === 1
-            ? `${data[0].usuarios?.nombre || "Un colaborador"} solicita aprobación: ${data[0].concepto || data[0].id}`
-            : `${data.length} solicitudes nuevas esperan tu aprobación`,
+          body: notifBody,
           icon: "/Viaticos/icons/icon-192.png",
           badge: "/Viaticos/icons/icon-192.png",
           tag: "nuevas-solicitudes",
           renotify: true,
+          requireInteraction: true,
+          vibrate: [300, 100, 300],
           data: { url: "/Viaticos/" },
         });
       }
@@ -10507,22 +10515,30 @@ async function checkNotificacionesPendientes(role, userId) {
       // Cambios de status en solicitudes propias
       const { data } = await window.sb
         .from("solicitudes")
-        .select("id, status, tipo")
-        .eq("usuario_id", userId)
+        .select("id, status, tipo, concepto, monto")
+        .eq("usuario", userId)
         .in("status", ["autorizado", "liberado", "rechazado"])
         .gt("updated_at", desde)
         .limit(5);
 
       if (data && data.length > 0) {
         for (const s of data) {
-          const icons = { autorizado: "✅", liberado: "💰", rechazado: "❌" };
-          const msgs  = { autorizado: "fue autorizado", liberado: "fue dispersado", rechazado: "fue rechazado" };
+          const icons  = { autorizado: "✅", liberado: "💰", rechazado: "❌" };
+          const titulos = { autorizado: "Solicitud autorizada", liberado: "Pago dispersado", rechazado: "Solicitud rechazada" };
+          const cuerpos = {
+            autorizado: `${s.id} fue aprobada — ya puedes usarla`,
+            liberado:   `${s.id} · ${s.concepto || ""} — el pago fue procesado`,
+            rechazado:  `${s.id} fue rechazada — revisa el motivo en la app`,
+          };
           const reg = await navigator.serviceWorker.ready;
-          reg.showNotification(`${icons[s.status]} Anticipo ${msgs[s.status]}`, {
-            body: `${s.id} — ${msgs[s.status]}`,
+          reg.showNotification(`${icons[s.status]} ${titulos[s.status]}`, {
+            body: cuerpos[s.status],
             icon: "/Viaticos/icons/icon-192.png",
+            badge: "/Viaticos/icons/icon-192.png",
             tag: `status-${s.id}`,
-            renotify: false,
+            renotify: true,
+            requireInteraction: true,
+            vibrate: [200, 100, 200],
             data: { url: "/Viaticos/" },
           });
         }
