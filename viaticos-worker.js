@@ -110,7 +110,7 @@ async function sendPush(subscription, payload, env) {
   const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv: nonce }, cek, padded);
 
   // Headers
-  const vapidHdrs = await vapidHeaders(audience, `mailto:${env.VAPID_SUBJECT || "admin@zapata.com.mx"}`, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY);
+  const vapidHdrs = await vapidHeaders(audience, `mailto:${env.VAPID_SUBJECT || "rhernandez@zapata.com.mx"}`, env.VAPID_PUBLIC_KEY, env.VAPID_PRIVATE_KEY);
   const encKey    = toBase64url(serverPubRaw);
 
   const res = await fetch(endpoint, {
