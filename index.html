@@ -3254,14 +3254,12 @@ function CompUploader({ onAdd, solicitudId }) {
         const ext = file.name.split(".").pop();
         const uid = (solicitudId || "tmp") + "-" + Date.now();
         const path = `${uid}.${ext}`;
-        console.log("[Upload] Subiendo:", path, file.size, "bytes,", file.type);
-        const { error: upErr, data: upData } = await window.sb.storage.from("comprobantes").upload(path, file, { upsert: true });
+        const { error: upErr } = await window.sb.storage.from("comprobantes").upload(path, file, { upsert: true });
         if (!upErr) {
           const { data: { publicUrl } } = window.sb.storage.from("comprobantes").getPublicUrl(path);
           archivoUrl = publicUrl;
-          console.log("[Upload] OK:", publicUrl);
         } else {
-          console.error("[Upload] FAIL:", upErr.message, upErr);
+          console.warn("Storage upload error:", upErr.message);
         }
       }
 
@@ -3652,9 +3650,7 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
             cuenta: it.cuenta, confianza: it.confianza||0.9,
             archivo_url: it.archivo_url || null,
           }));
-        console.log("[Comprobacion] CFDI rows:", cfdiPayload);
-        const { error: cfdiErr } = await window.sb.from("comprobantes_cfdi").upsert(cfdiPayload, { onConflict: "uuid" });
-        if (cfdiErr) console.error("[Comprobacion] CFDI error:", cfdiErr);
+        await window.saveCfdiRows(cfdiPayload);
       }
       // NO actualizamos saldo_pendiente del anticipo padre aquí
       // Se actualizará cuando tesorería libere la comprobación
@@ -3998,10 +3994,7 @@ function NuevoReembolso({ setPage, userId }) {
           cuenta: it.cuenta, confianza: it.confianza||0.9,
           archivo_url: it.archivo_url || null,
         }));
-        console.log("[Reembolso] CFDI rows to insert:", cfdiRows);
-        const { error: cfdiErr, data: cfdiData } = await window.sb.from("comprobantes_cfdi").upsert(cfdiRows, { onConflict: "uuid" }).select();
-        if (cfdiErr) console.error("[Reembolso] CFDI insert error:", cfdiErr);
-        else console.log("[Reembolso] CFDI inserted:", cfdiData);
+        await window.saveCfdiRows(cfdiRows);
       }
     }
     const nueva = {
@@ -4301,7 +4294,7 @@ function CierreAnticipo({ setPage, userId, anticipoId }) {
 
       // Guardar comprobante como CFDI especial (para que aparezca en detalle)
       if (archivoUrl) {
-        await window.sb.from("comprobantes_cfdi").upsert([{
+        await window.saveCfdiRows([{
           solicitud_id: id,
           uuid: "CIERRE-" + id,
           emisor: (u?.nombre || "Usuario"),
@@ -4310,7 +4303,7 @@ function CierreAnticipo({ setPage, userId, anticipoId }) {
           cuenta: "1110000001",
           confianza: 1.0,
           archivo_url: archivoUrl,
-        }], { onConflict: "uuid" });
+        }]);
       }
     }
 
@@ -7738,16 +7731,14 @@ function MobileScan({ userId, onDone }) {
       });
       if (error) { showToast("⚠ Error: " + error.message); return; }
       if (facturas.length > 0) {
-        await window.sb.from("comprobantes_cfdi").upsert(
-          facturas.map(it=>({
+        await window.saveCfdiRows(facturas.map(it=>({
             solicitud_id: id,
             uuid: it.uuidFull || it.uuid || ("SIN-UUID-"+Date.now()+"-"+Math.random().toString(36).slice(2,6)),
             emisor: it.emisor, concepto: it.concepto,
             subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
             cuenta: it.cuenta, confianza: it.confianza||0.9,
             archivo_url: it.archivo_url || null,
-          })), { onConflict: "uuid" }
-        );
+          })));
       }
     }
 
@@ -9159,16 +9150,14 @@ function MNuevaComprobacion({ userId, onDone, showSnack }) {
       });
       if (error) { showSnack("⚠ Error: " + error.message); return; }
       if (facturas.length > 0) {
-        await window.sb.from("comprobantes_cfdi").upsert(
-          facturas.map(it=>({
+        await window.saveCfdiRows(facturas.map(it=>({
             solicitud_id: id,
             uuid: it.uuidFull || it.uuid || ("SIN-UUID-"+Date.now()+"-"+Math.random().toString(36).slice(2,6)),
             emisor: it.emisor, concepto: it.concepto,
             subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
             cuenta: it.cuenta, confianza: it.confianza||0.9,
             archivo_url: it.archivo_url || null,
-          })), { onConflict: "uuid" }
-        );
+          })));
       }
       // Actualizar saldo del anticipo padre
       await window.sb.from("solicitudes").update({
@@ -10405,6 +10394,25 @@ function BitacoraPanel({ limit=10 }) {
   );
 }
 
+
+// ── Helper: guardar CFDI rows en comprobantes_cfdi ─────────────────────────
+// Usa insert; en conflicto de uuid actualiza archivo_url (requiere UNIQUE en uuid)
+async function saveCfdiRows(rows) {
+  if (!window.sb || !rows || rows.length === 0) return;
+  for (const row of rows) {
+    try {
+      const { error } = await window.sb.from("comprobantes_cfdi").upsert(row, { onConflict: "uuid" });
+      if (error && error.code === "42P10") {
+        // Sin constraint UNIQUE — hacer insert simple
+        const { error: err2 } = await window.sb.from("comprobantes_cfdi").insert(row);
+        if (err2 && err2.code !== "23505") console.warn("CFDI insert:", err2.message);
+      } else if (error) {
+        console.warn("CFDI upsert:", error.message);
+      }
+    } catch(e) { console.warn("CFDI save:", e.message); }
+  }
+}
+window.saveCfdiRows = saveCfdiRows;
 
 function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
   // Perfil — disponible para todos
