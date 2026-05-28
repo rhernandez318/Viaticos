@@ -1696,10 +1696,22 @@ async function subscribeToPush() {
     if (error) { console.error("[FCM] Error guardando token:", error); return false; }
     console.log("[FCM] Token guardado en Supabase ✓ para usuario", userId);
 
-    // Manejar mensajes en primer plano
+    // Manejar mensajes en primer plano — mostrar notificación local Y guardar en panel
     messaging.onMessage(payload => {
-      const n = payload.notification || payload.data || {};
-      sendLocalNotification(n.title || "Viaticos", n.body || "", "fcm-fg");
+      const d = payload.data || payload.notification || {};
+      const title = d.title || "Viáticos";
+      const body  = d.body  || "";
+      sendLocalNotification(title, body, "fcm-fg");
+      // Guardar en array global para que aparezca en el panel de campana
+      window.FCM_NOTIFS = window.FCM_NOTIFS || [];
+      window.FCM_NOTIFS.unshift({
+        id: "fcm_" + Date.now(),
+        tipo: "info",
+        icon: "bell",
+        titulo: title,
+        texto: body,
+        ts: new Date(),
+      });
     });
 
     window.pushEnabled = true;
@@ -2680,7 +2692,9 @@ function generarNotificaciones(role, userId) {
   // Deduplicar y ordenar por tipo (danger > warn > info)
   const unique = [...new Map(msgs.map(m => [m.id, m])).values()];
   const orden  = { danger:0, warn:1, info:2 };
-  return unique.sort((a,b) => (orden[a.tipo]||2) - (orden[b.tipo]||2));
+  // Agregar notificaciones FCM recibidas en primer plano
+  const fcmExtra = (window.FCM_NOTIFS || []).filter(n => !unique.find(u => u.id === n.id));
+  return [...fcmExtra, ...unique].sort((a,b) => (orden[a.tipo]||2) - (orden[b.tipo]||2));
 }
 
 // ── Panel de notificaciones ───────────────────────────────────────────────────
@@ -2811,7 +2825,12 @@ function NotifPanel({ role, userId, onClose, onNavigate, leidas, setLeidas }) {
 function Topbar({ role, setRole, crumbs, onNew, isAdmin, userId, onOpenDetail }) {
   const [showNotifs, setShowNotifs] = React.useState(false);
   const [leidas,     setLeidas]     = React.useState(new Set());
-  const notifs   = React.useMemo(() => generarNotificaciones(role, userId), [role, userId]);
+  const [, forceNotif] = React.useReducer(x=>x+1,0);
+  React.useEffect(() => {
+    const t = setInterval(forceNotif, 30000);
+    return () => clearInterval(t);
+  }, []);
+  const notifs = generarNotificaciones(role, userId);
   const unread   = notifs.filter(n => !leidas.has(n.id)).length;
 
   return (
