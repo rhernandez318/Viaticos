@@ -10124,7 +10124,8 @@ function MobileApp({ userId, role, onLogout, setPage, openDetail }) {
 
 function PerfilPage({ userId, onLogout }) {
   const u = window.findUser(userId);
-  const c = window.findCentro(u.centro);
+  if (!u) return <div style={{padding:20}}>Cargando perfil...</div>;
+  const c = window.findCentro(u.centro) || { nombre: "—" };
   const g = u.gerente ? window.findUser(u.gerente) : null;
   const mine = window.SOLICITUDES.filter(s => s.usuario === userId);
   const [pushOn, setPushOn] = React.useState(!!window.pushEnabled);
