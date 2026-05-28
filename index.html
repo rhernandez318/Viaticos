@@ -4098,6 +4098,24 @@ function Reembolsos({ userId, setPage }) {
 function NuevoReembolso({ setPage, userId }) {
   const uid = userId || "U001";
   const [items, setItems] = React.useState([]);
+  const checkDuplicados = async (newItems) => {
+    const flagged = await Promise.all(newItems.map(async (item) => {
+      const uuid = item.uuidFull || item.uuid;
+      if (!uuid) return item;
+      const yaEnLista = items.some(i => (i.uuidFull||i.uuid) === uuid);
+      if (yaEnLista) return { ...item, duplicado: true, motivoDup: "Ya agregado en este reembolso" };
+      if (window.sb) {
+        const { data } = await window.sb.from("comprobantes_cfdi")
+          .select("solicitud_id, solicitudes!inner(status)").eq("uuid", uuid).limit(5);
+        const activo = (data || []).find(d => d.solicitudes?.status !== "rechazado");
+        if (activo) return { ...item, duplicado: true, motivoDup: "Ya comprobado en solicitud " + activo.solicitud_id };
+      }
+      return item;
+    }));
+    const dupes = flagged.filter(i => i.duplicado);
+    if (dupes.length > 0) showToast(`⚠ ${dupes.length} comprobante${dupes.length>1?"s":""} duplicado${dupes.length>1?"s":""} detectado${dupes.length>1?"s":""}`);
+    setItems(prev => [...prev, ...flagged]);
+  };
   const [concepto, setConcepto] = React.useState("");
   const [toast, setToast] = React.useState(null);
   const [enviado, setEnviado] = React.useState(false);
@@ -4124,7 +4142,7 @@ function NuevoReembolso({ setPage, userId }) {
       if (error) { showToast("Error al guardar: " + error.message, false); return; }
       // Guardar CFDIs
       if (items.length > 0) {
-        const cfdiRows = items.map(it => ({
+        const cfdiRows = items.filter(it => !it.duplicado).map(it => ({
           solicitud_id: id, uuid: it.uuid||it.uuidFull||("SIN-UUID-"+Date.now()+"-"+Math.random().toString(36).slice(2,6)),
           emisor: it.emisor, concepto: it.concepto,
           subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
@@ -4175,7 +4193,7 @@ function NuevoReembolso({ setPage, userId }) {
           <h3 className="card-title">Comprobantes (CFDI)</h3>
           <div className="card-sub">Sube los XML de las facturas</div>
         </div>
-        <CompUploader onAdd={newItems=>setItems(prev=>[...prev,...newItems])}/>
+        <CompUploader onAdd={newItems=>checkDuplicados(newItems)}/>
         {items.length>0&&(
           <table className="t" style={{marginTop:12}}>
             <thead><tr><th>Emisor</th><th>Concepto</th><th>Cuenta</th><th className="right">Total</th><th></th></tr></thead>
@@ -4183,8 +4201,8 @@ function NuevoReembolso({ setPage, userId }) {
               {items.map((it,i)=>{
                 const meta=window.findCuenta&&window.findCuenta(it.cuenta)||{nombre:it.cuenta||"—"};
                 return (
-                  <tr key={i}>
-                    <td style={{fontSize:12}}>{it.emisor||"—"}</td>
+                  <tr key={i} style={it.duplicado?{textDecoration:"line-through",color:"var(--danger)",opacity:.6}:{}}>
+                    <td style={{fontSize:12}}>{it.emisor||"—"}{it.duplicado&&<span style={{fontSize:10,marginLeft:6}}>⚠ {it.motivoDup}</span>}</td>
                     <td style={{fontSize:12,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.concepto||"—"}</td>
                     <td style={{fontSize:11}}>{meta.nombre}</td>
                     <td className="num">{window.fmtMXN(it.total||0)}</td>
@@ -7809,7 +7827,7 @@ function MobileScan({ userId, onDone }) {
         continue;
       }
       const reader = new FileReader();
-      reader.onload = (ev) => {
+      reader.onload = async (ev) => {
         const txt = ev.target.result;
         // Use the parseCFDI logic inline (simplified, same as CompUploader)
         try {
@@ -7861,14 +7879,26 @@ function MobileScan({ userId, onDone }) {
           const meta = window.findCuenta(cuenta) || { nombre: cuenta };
           // Upload XML to storage for future retrieval
           uploadToStorage(file, uuid.slice(0,8)||"xml").then(archivoUrl => {
-            setFacturas(prev => [...prev, {
-              nombre: file.name, uuid: uuid.slice(0,18)+(uuid.length>18?"…":""),
-              uuidFull: uuid,
-              emisor, concepto: conceptoStr, subtotal: Math.round(subtotal*100)/100,
-              iva: Math.round(iva*100)/100, total: Math.round(total*100)/100,
-              cuenta, nombreCuenta: meta.nombre, confianza, isCFDI: true,
-              archivo_url: archivoUrl,
-            }]);
+            // Validar duplicado antes de agregar
+            let dup = false, motivoDup = "";
+            if (window.sb && uuid) {
+              const { data: dd } = await window.sb.from("comprobantes_cfdi")
+                .select("solicitud_id, solicitudes!inner(status)").eq("uuid", uuid).limit(5);
+              const activo = (dd || []).find(d => d.solicitudes?.status !== "rechazado");
+              if (activo) { dup = true; motivoDup = "Ya comprobado en " + activo.solicitud_id; }
+            }
+            setFacturas(prev => {
+              if (prev.some(f => f.uuidFull === uuid)) { dup = true; motivoDup = "Ya agregado"; }
+              return [...prev, {
+                nombre: file.name, uuid: uuid.slice(0,18)+(uuid.length>18?"…":""),
+                uuidFull: uuid,
+                emisor, concepto: conceptoStr, subtotal: Math.round(subtotal*100)/100,
+                iva: Math.round(iva*100)/100, total: Math.round(total*100)/100,
+                cuenta, nombreCuenta: meta.nombre, confianza, isCFDI: true,
+                archivo_url: archivoUrl, duplicado: dup, motivoDup,
+              }];
+            });
+            if (dup) showToast("⚠ Comprobante duplicado: " + motivoDup);
           });
         } catch(err) { showToast("Error al leer: " + file.name); }
       };
@@ -7896,7 +7926,7 @@ function MobileScan({ userId, onDone }) {
       });
       if (error) { showToast("⚠ Error: " + error.message); return; }
       if (facturas.length > 0) {
-        await window.saveCfdiRows(facturas.map(it=>({
+        await window.saveCfdiRows(facturas.filter(it=>!it.duplicado).map(it=>({
             solicitud_id: id,
             uuid: it.uuidFull || it.uuid || ("SIN-UUID-"+Date.now()+"-"+Math.random().toString(36).slice(2,6)),
             emisor: it.emisor, concepto: it.concepto,
@@ -7907,11 +7937,12 @@ function MobileScan({ userId, onDone }) {
       }
     }
 
+    const facturasValidas = facturas.filter(f => !f.duplicado);
     window.SOLICITUDES.unshift({
       id, tipo:"reembolso",
       concepto: conceptoFinal,
-      usuario: userId, monto: total, fecha: new Date(),
-      status:"solicitado", comprobantes: facturas.length, cfdi: facturas,
+      usuario: userId, monto: facturasValidas.reduce((s,f)=>s+(f.total||0),0), fecha: new Date(),
+      status:"solicitado", comprobantes: facturasValidas.length, cfdi: facturasValidas,
       saldoPendiente: 0,
     });
     const _gMS = window.findUser(userId)?.gerente;
@@ -7950,7 +7981,8 @@ function MobileScan({ userId, onDone }) {
 
       {/* Facturas procesadas */}
       {facturas.map((f, i) => (
-        <div key={i} className="m-card" style={{marginBottom:10}}>
+        <div key={i} className="m-card" style={{marginBottom:10, ...(f.duplicado?{borderColor:"var(--danger)",opacity:.7}:{})}}>
+          {f.duplicado && <div style={{fontSize:11,color:"var(--danger)",marginBottom:6,fontWeight:600}}>⚠ {f.motivoDup}</div>}
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
             <div style={{fontSize:12,fontWeight:600,flex:1,marginRight:8,
               overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{f.nombre}</div>
