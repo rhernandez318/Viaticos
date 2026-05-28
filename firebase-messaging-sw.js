@@ -15,23 +15,34 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-// Notificaciones cuando la app está en background o cerrada
-messaging.onBackgroundMessage(payload => {
-  const n   = payload.notification || {};
-  const d   = payload.data || {};
-  const title = d.title || n.title || 'Grupo Zapata';
-  const body  = d.body  || n.body  || 'Revisa la app para ver los detalles.';
+// Handler directo del push event — se ejecuta para TODOS los mensajes FCM en background
+self.addEventListener('push', event => {
+  if (!event.data) return;
 
-  self.registration.showNotification(title, {
-    body,
-    icon:               '/Viaticos/icons/icon-192.png',
-    badge:              '/Viaticos/icons/icon-192.png',
-    requireInteraction: true,
-    vibrate:            [200, 100, 200],
-    data:               { url: d.url || '/Viaticos/' },
-  });
+  let payload = {};
+  try { payload = event.data.json(); } catch(e) { return; }
+
+  // FCM v1 puede enviar en notification o data
+  const notif = payload.notification || {};
+  const data  = payload.data        || {};
+
+  const title = data.title || notif.title || 'Grupo Zapata';
+  const body  = data.body  || notif.body  || 'Tienes una notificacion pendiente';
+  const url   = data.url   || '/Viaticos/';
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon:               '/Viaticos/icons/icon-192.png',
+      badge:              '/Viaticos/icons/icon-192.png',
+      requireInteraction: true,
+      vibrate:            [200, 100, 200],
+      data:               { url },
+    })
+  );
 });
 
+// Click en notificacion -> abrir la app
 self.addEventListener('notificationclick', event => {
   event.notification.close();
   const url = event.notification.data?.url || '/Viaticos/';
