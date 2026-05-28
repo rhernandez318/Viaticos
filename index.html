@@ -7878,7 +7878,7 @@ function MobileScan({ userId, onDone }) {
 
           const meta = window.findCuenta(cuenta) || { nombre: cuenta };
           // Upload XML to storage for future retrieval
-          uploadToStorage(file, uuid.slice(0,8)||"xml").then(archivoUrl => {
+          uploadToStorage(file, uuid.slice(0,8)||"xml").then(async archivoUrl => {
             // Validar duplicado antes de agregar
             let dup = false, motivoDup = "";
             if (window.sb && uuid) {
