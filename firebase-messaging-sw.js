@@ -18,15 +18,15 @@ const messaging = firebase.messaging();
 // ── FCM: un solo handler para mostrar la notificación (evita duplicados) ──────
 messaging.onBackgroundMessage(payload => {
   const d = payload.data || {};
-  const title = d.title || 'Grupo Zapata';
-  const body  = d.body  || 'Tienes una notificación pendiente';
+  const title = d.t || d.title || 'Grupo Zapata';
+  const body  = d.b || d.body  || 'Tienes una notificación pendiente';
   self.registration.showNotification(title, {
     body,
     icon:               '/Viaticos/icons/icon-192.png',
     badge:              '/Viaticos/icons/icon-192.png',
     requireInteraction: true,
     vibrate:            [200, 100, 200],
-    tag:                'viaticos-notif',   // tag fijo → reemplaza, no acumula
+    tag:                d.tag || ('viaticos-' + Date.now()),  // tag único o el que mande el Worker
     renotify:           true,
     data:               { url: d.url || '/Viaticos/' },
   });
@@ -49,7 +49,7 @@ self.addEventListener('notificationclick', event => {
 // ═══════════════════════════════════════════════════════════════════════════
 // CACHÉ (network-first HTML, cache-first librerías)
 // ═══════════════════════════════════════════════════════════════════════════
-const VERSION = "v2026.05.28-7";
+const VERSION = "v2026.05.28-9";
 const CACHE_NAME = "viaticos-" + VERSION;
 const PRECACHE = [
   "./", "./index.html", "./manifest.json",
