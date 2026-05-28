@@ -3198,13 +3198,12 @@ function SolicitarAnticipo({ setPage, userId }) {
 
   // Guardar cada vez que cambia form o desglose
   React.useEffect(() => {
-    if (!form.concepto && !form.destino) return;
+    if (!form.concepto && !desglose.some(d=>d.monto>0)) return;
     try { localStorage.setItem(BORR_KEY, JSON.stringify({ form, desglose, ts: Date.now() })); } catch(e) {}
   }, [form, desglose]);
 
   const handleEnviar = async () => {
     if (!form.concepto.trim()) { showToast("⚠ Escribe un concepto para continuar"); return; }
-    if (!form.destino.trim())  { showToast("⚠ Indica el destino del viaje"); return; }
     if (totalDesg <= 0)        { showToast("⚠ Agrega al menos un concepto con monto"); return; }
     // ── Validaciones configurables ──
     const reglas = window.REGLAS || {};
@@ -3227,7 +3226,6 @@ function SolicitarAnticipo({ setPage, userId }) {
         usuario_id: uid, monto: totalDesg,
         status:"solicitado", saldo_pendiente: totalDesg,
         centro_id: u&&u.centro ? u.centro : null,
-        destino: form.destino.trim(), notas: form.notas||null,
         fecha: new Date().toISOString(),
       };
       const { error } = await window.sb.from("solicitudes").insert(row);
@@ -3243,7 +3241,6 @@ function SolicitarAnticipo({ setPage, userId }) {
       id, tipo:"anticipo", concepto: form.concepto.trim(),
       usuario: uid, monto: totalDesg, fecha: new Date(),
       status:"solicitado", saldoPendiente: totalDesg, comprobantes:0,
-      destino: form.destino, notas: form.notas||null,
     };
     window.SOLICITUDES.unshift(nueva);
     limpiarBorrador();
@@ -3291,7 +3288,7 @@ function SolicitarAnticipo({ setPage, userId }) {
           justifyContent:"space-between",gap:12,fontSize:13}}>
           <span><Icon name="clock" size={13}/> Borrador del {new Date(_borrInit.ts).toLocaleDateString("es-MX")} restaurado</span>
           <button className="btn sm ghost" onClick={()=>{
-            setForm({concepto:"",destino:"",salida:"",regreso:"",notas:"",centro:u.centro||""});
+            setForm({concepto:"",salida:"",regreso:"",centro:u.centro||""});
             setDesglose([{id:Date.now(),nombre:"",monto:0,cuenta:"6122900005"}]);
             limpiarBorrador();
           }}>Descartar</button>
@@ -3317,9 +3314,13 @@ function SolicitarAnticipo({ setPage, userId }) {
             <div className="field"><label>Centro de beneficio</label><select className="select" value={form.centro} onChange={e => updField("centro", e.target.value)}>{window.CENTROS.map(c => <option key={c.id} value={c.id}>{c.id} · {c.nombre}</option>)}</select></div>
             <div className="field"><label>Fecha salida</label><input className="input" type="date" value={form.salida} onChange={e => updField("salida", e.target.value)}/></div>
             <div className="field"><label>Fecha regreso</label><input className="input" type="date" min={form.salida||undefined} value={form.regreso} onChange={e => updField("regreso", e.target.value)}/></div>
-            <div className="field"><label>Destino</label><input className="input" value={form.destino} onChange={e => updField("destino", e.target.value)}/></div>
-            <div className="field"><label>Monto solicitado (MXN)</label><input className="input mono" value={form.monto} onChange={e => updField("monto", e.target.value)}/></div>
-            <div className="field" style={{gridColumn:"1 / -1"}}><label>Notas para tu gerente (opcional)</label><textarea className="textarea" value={form.notas} onChange={e => updField("notas", e.target.value)}/></div>
+            <div className="field" style={{gridColumn:"1 / -1"}}>
+              <label style={{fontSize:11,fontWeight:600,letterSpacing:"0.06em",textTransform:"uppercase",color:"var(--accent)"}}>Monto solicitado · suma automática del desglose</label>
+              <div style={{background:"var(--accent-soft)",border:"2px solid var(--accent)",borderRadius:8,padding:"14px 18px",marginTop:6,display:"flex",alignItems:"baseline",justifyContent:"space-between"}}>
+                <span style={{fontSize:12,color:"var(--text-2)"}}>Total a solicitar</span>
+                <span style={{fontSize:28,fontWeight:700,color:"var(--accent)",fontVariantNumeric:"tabular-nums"}}>{window.fmtMXN(totalDesg)}</span>
+              </div>
+            </div>
           </div>
 
           <div className="divider"></div>
@@ -9139,7 +9140,7 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
 
   // Auto-guardar en localStorage
   React.useEffect(() => {
-    if (!form.concepto && !form.destino) return;
+    if (!form.concepto && !desglose.some(d=>d.monto>0)) return;
     try { localStorage.setItem(BORR_KEY_M, JSON.stringify({ form, desglose: lineas, ts: Date.now() })); } catch(e) {}
   }, [form, lineas]);
   const upd = (k, v) => setForm({...form, [k]: v});
@@ -9150,7 +9151,6 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
 
   const enviar = async () => {
     if (!form.concepto.trim()) { showSnack("⚠ Escribe un concepto"); return; }
-    if (!form.destino.trim())  { showSnack("⚠ Indica el destino"); return; }
     if (total <= 0)            { showSnack("⚠ Agrega al menos un monto"); return; }
     const id = "ANT-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-4);
     const u = window.findUser(userId);
@@ -9161,10 +9161,8 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
         usuario_id: userId, monto: total,
         status:"solicitado", saldo_pendiente: total,
         centro_id: u && u.centro ? u.centro : null,
-        destino: form.destino.trim(),
         fecha_salida: form.salida || null,
         fecha_regreso: form.regreso || null,
-        notas: form.notas||null,
         fecha: new Date().toISOString(),
       });
       if (error) { showSnack("⚠ Error: " + error.message); return; }
@@ -9179,8 +9177,8 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
       id, tipo:"anticipo", concepto: form.concepto.trim(),
       usuario: userId, monto: total, fecha: new Date(),
       status: "solicitado", saldoPendiente: total, comprobantes: 0,
-      destino: form.destino, salida: form.salida, regreso: form.regreso,
-      notas: form.notas, items: lineas,
+      salida: form.salida, regreso: form.regreso,
+      items: lineas,
     });
     limpiarBorrM();
     (() => { const _g = window.findUser(userId)?.gerente; if (_g) window.notifyUser && window.notifyUser(_g, "📋 Nueva solicitud pendiente", `${window.findUser(userId)?.nombre||"Un colaborador"} solicita un anticipo — ${form.concepto}`, "nueva-"+id); })();
@@ -9202,17 +9200,18 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
           justifyContent:"space-between",gap:8,fontSize:12.5}}>
           <span><Icon name="clock" size={13}/> Borrador del {new Date(_borrM.ts).toLocaleDateString("es-MX")} restaurado</span>
           <button className="btn sm ghost" style={{flexShrink:0}} onClick={()=>{
-            setForm({concepto:"",destino:"",salida:"",regreso:"",notas:"",centro:window.CENTROS[0]?.id||""});
+            setForm({concepto:"",salida:"",regreso:"",centro:window.CENTROS[0]?.id||""});
             setLineas([{id:Date.now(),cuenta:"6122900005",monto:""}]);
             limpiarBorrM();
           }}>Descartar</button>
         </div>
       )}
-      <div className="m-balance" style={{padding:14, marginBottom:14}}>
-        <div className="m-balance-l">Monto total estimado</div>
-        <div className="m-balance-v">{window.fmtMXN(total)}</div>
-        <div style={{fontSize:11.5, opacity:0.75, marginTop:6}}>{lineas.length} concepto{lineas.length !== 1 ? "s" : ""}</div>
+      <div className="m-balance" style={{padding:18, marginBottom:14, background:"var(--accent-soft)", border:"2px solid var(--accent)"}}>
+        <div className="m-balance-l" style={{color:"var(--accent)", fontWeight:700, fontSize:11, letterSpacing:"0.08em", textTransform:"uppercase"}}>Total a solicitar · suma automática</div>
+        <div className="m-balance-v" style={{color:"var(--accent)", fontSize:34, fontWeight:800, fontVariantNumeric:"tabular-nums", margin:"4px 0"}}>{window.fmtMXN(total)}</div>
+        <div style={{fontSize:11.5, opacity:0.75, marginTop:2}}>{lineas.length} concepto{lineas.length !== 1 ? "s" : ""}</div>
       </div>
+      <button className="btn primary" style={{width:"100%", justifyContent:"center", padding:"16px 20px", fontSize:15, fontWeight:700, marginBottom:18}} onClick={enviar}><Icon name="arrowR" size={15}/> Enviar a aprobación</button>
 
       <div style={{fontSize:11, textTransform:"uppercase", letterSpacing:"0.08em", color:"var(--text-3)", margin:"4px 4px 10px", fontWeight:600}}>Datos del viaje</div>
       <div className="m-card" style={{margin:"0 0 14px"}}>
@@ -9236,14 +9235,6 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
             <input className="input" type="date" min={form.salida||undefined} style={{width:"100%"}} value={form.regreso} onChange={e => upd("regreso", e.target.value)}/>
           </div>
         </div>
-        <div style={{marginBottom:12}}>
-          <label style={{fontSize:11, color:"var(--text-3)", fontWeight:500, display:"block", marginBottom:4}}>Destino</label>
-          <input className="input" placeholder="Ciudad, Estado" style={{width:"100%"}} value={form.destino} onChange={e => upd("destino", e.target.value)}/>
-        </div>
-        <div>
-          <label style={{fontSize:11, color:"var(--text-3)", fontWeight:500, display:"block", marginBottom:4}}>Notas (opcional)</label>
-          <textarea className="textarea" placeholder="Detalles para tu gerente…" style={{width:"100%", minHeight:60}} value={form.notas} onChange={e => upd("notas", e.target.value)}/>
-        </div>
       </div>
 
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8, padding:"0 4px"}}>
@@ -9263,8 +9254,8 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
       ))}
 
       <div style={{marginTop:16, display:"flex", flexDirection:"column", gap:8}}>
-        <button className="btn primary" style={{width:"100%", justifyContent:"center"}} onClick={enviar}><Icon name="arrowR" size={13}/> Enviar a aprobación</button>
-        <button className="btn" style={{width:"100%", justifyContent:"center"}} onClick={guardarBorrador}>Guardar borrador</button>
+        <button className="btn primary" style={{width:"100%", justifyContent:"center", padding:"14px 20px", fontSize:14, fontWeight:700}} onClick={enviar}><Icon name="arrowR" size={14}/> Enviar a aprobación</button>
+        <button className="btn ghost" style={{width:"100%", justifyContent:"center"}} onClick={guardarBorrador}>Guardar borrador</button>
       </div>
     </div>
   );
