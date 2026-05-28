@@ -10219,6 +10219,56 @@ function PerfilPage({ userId, onLogout }) {
           </div>
         </div>
       </div>
+
+      {/* Panel de mantenimiento — solo admin */}
+      {u?.rol === "admin" && (
+        <div className="card" style={{marginTop:18,borderColor:"var(--warn)"}}>
+          <div className="card-h" style={{color:"var(--warn)"}}>🔧 Mantenimiento (solo admin)</div>
+          <div style={{padding:"4px 0",fontSize:12,color:"var(--text-2)",marginBottom:10}}>
+            Diagnóstico y limpieza de notificaciones push. Úsalo si llegan notificaciones duplicadas o si algún usuario no recibe avisos.
+          </div>
+
+          <button className="btn" style={{marginRight:8,marginBottom:8}} onClick={async ()=>{
+            const rs = await navigator.serviceWorker.getRegistrations();
+            const lista = rs.map(r => r.active?.scriptURL || "(sin activo)").join("\n");
+            const subs = await window.sb.from("push_subscriptions").select("usuario_id");
+            const users = window.USUARIOS.filter(x=>x.rol==="gerente"||x.rol==="admin");
+            const conToken = new Set((subs.data||[]).map(s=>s.usuario_id));
+            const estado = users.map(x => `${conToken.has(x.id)?"✓":"✗"} ${x.nombre} (${x.rol})`).join("\n");
+            alert("Service Workers activos:\n" + lista + "\n\nGerentes/Admins con token push:\n" + estado);
+          }}>📋 Ver diagnóstico</button>
+
+          <button className="btn" style={{marginRight:8,marginBottom:8}} onClick={async ()=>{
+            if (!confirm("Esto desregistra TODOS los Service Workers viejos en este navegador. Después tienes que recargar y volver a activar notificaciones. ¿Continuar?")) return;
+            const rs = await navigator.serviceWorker.getRegistrations();
+            for (const r of rs) {
+              if (r.active?.scriptURL.includes("service-worker.js")) {
+                await r.unregister();
+              }
+            }
+            alert("✓ Service Workers viejos desregistrados. Recarga la página y reactiva notificaciones.");
+          }}>🧹 Limpiar SW viejos (este dispositivo)</button>
+
+          <button className="btn" style={{marginRight:8,marginBottom:8,background:"var(--danger)",color:"#fff"}} onClick={async ()=>{
+            if (!confirm("Esto borra TODOS los tokens push de la tabla push_subscriptions. Cada usuario tendrá que volver a activar notificaciones desde su Perfil. ¿Continuar?")) return;
+            const { error } = await window.sb.from("push_subscriptions").delete().neq("usuario_id","00000000-0000-0000-0000-000000000000");
+            if (error) alert("Error: " + error.message);
+            else alert("✓ Tokens push borrados. Notifica a los gerentes para que reactiven notificaciones.");
+          }}>🗑 Borrar todos los tokens push</button>
+
+          <button className="btn" style={{marginBottom:8}} onClick={async ()=>{
+            try {
+              const res = await fetch("https://viaticos-admin.rhernandez-e52.workers.dev/notify", {
+                method:"POST",
+                headers:{"Content-Type":"application/json","Authorization":"Bearer viaticos-zapata-push-2026"},
+                body: JSON.stringify({userIds:[userId], title:"🧪 Prueba admin", body:"Si llega solo una vez, está bien configurado"})
+              });
+              const d = await res.json();
+              alert("Respuesta del Worker:\n" + JSON.stringify(d,null,2));
+            } catch(e) { alert("Error: " + e.message); }
+          }}>🧪 Enviarme una notificación de prueba</button>
+        </div>
+      )}
     </>
   );
 }
