@@ -9140,7 +9140,7 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
 
   // Auto-guardar en localStorage
   React.useEffect(() => {
-    if (!form.concepto && !desglose.some(d=>d.monto>0)) return;
+    if (!form.concepto && !lineas.some(d=>d.monto>0)) return;
     try { localStorage.setItem(BORR_KEY_M, JSON.stringify({ form, desglose: lineas, ts: Date.now() })); } catch(e) {}
   }, [form, lineas]);
   const upd = (k, v) => setForm({...form, [k]: v});
