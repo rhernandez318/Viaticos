@@ -2,7 +2,7 @@
 // Estrategia: network-first para el HTML (siempre la última versión)
 //             cache-first para librerías CDN (React, Babel, Supabase)
 
-const VERSION = "v2026.05.27-15";
+const VERSION = "v2026.05.28-1";
 const CACHE_NAME = "viaticos-" + VERSION;
 
 // Recursos críticos que pre-cacheamos
@@ -75,3 +75,42 @@ self.addEventListener("message", (event) => {
 });
 
 
+// ── Web Push (FCM) — handler que SÍ recibe el push en este scope ──────────────
+self.addEventListener('push', event => {
+  if (!event.data) return;
+  let payload = {};
+  try { payload = event.data.json(); } catch(e) { return; }
+
+  // FCM v1 envía el contenido en notification y/o data
+  const notif = payload.notification || {};
+  const data  = payload.data        || {};
+
+  const title = data.title || notif.title || 'Grupo Zapata';
+  const body  = data.body  || notif.body  || 'Tienes una notificación pendiente';
+  const url   = data.url   || (payload.fcmOptions && payload.fcmOptions.link) || '/Viaticos/';
+
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      icon:               '/Viaticos/icons/icon-192.png',
+      badge:              '/Viaticos/icons/icon-192.png',
+      requireInteraction: true,
+      vibrate:            [200, 100, 200],
+      tag:                'viaticos-' + Date.now(),
+      data:               { url },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/Viaticos/';
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
+      for (const c of cs) {
+        if (c.url.includes('/Viaticos/') && 'focus' in c) return c.focus();
+      }
+      if (clients.openWindow) return clients.openWindow(url);
+    })
+  );
+});
