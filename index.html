@@ -1672,8 +1672,8 @@ async function subscribeToPush() {
     // Registrar firebase-messaging-sw.js explícitamente
     let fbReg;
     try {
-      fbReg = await navigator.serviceWorker.register("/Viaticos/firebase-messaging-sw.js", { scope: "/Viaticos/" });
-      console.log("[FCM] firebase-messaging-sw.js registrado ✓");
+      fbReg = await navigator.serviceWorker.register("/Viaticos/firebase-messaging-sw.js", { scope: "/Viaticos/firebase-cloud-messaging-push-scope" });
+      console.log("[FCM] firebase-messaging-sw.js registrado en scope dedicado ✓");
     } catch(e) {
       console.warn("[FCM] Error registrando SW de Firebase:", e.message);
       fbReg = await navigator.serviceWorker.getRegistration();
