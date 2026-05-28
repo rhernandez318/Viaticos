@@ -1,8 +1,6 @@
-// firebase-messaging-sw.js
-// Service worker minimalista para FCM Web Push
+// firebase-messaging-sw.js — Service Worker ÚNICO (caché + FCM push)
 // Subir a: rhernandez318.github.io/Viaticos/firebase-messaging-sw.js
 
-// Importar Firebase para que getToken() funcione en el app
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
 
@@ -15,66 +13,29 @@ firebase.initializeApp({
   appId: "1:318139943193:web:3fade17ff5c1e89a805d88"
 });
 
-// Inicializar messaging (necesario para que FCM reconozca este SW)
-firebase.messaging();
+const messaging = firebase.messaging();
 
-// Activar el SW inmediatamente sin esperar a que cierren las pestañas
-self.addEventListener('install', event => {
-  console.log('[FCM-SW] install');
-  self.skipWaiting();
+// ── FCM: un solo handler para mostrar la notificación (evita duplicados) ──────
+messaging.onBackgroundMessage(payload => {
+  const d = payload.data || {};
+  const title = d.title || 'Grupo Zapata';
+  const body  = d.body  || 'Tienes una notificación pendiente';
+  self.registration.showNotification(title, {
+    body,
+    icon:               '/Viaticos/icons/icon-192.png',
+    badge:              '/Viaticos/icons/icon-192.png',
+    requireInteraction: true,
+    vibrate:            [200, 100, 200],
+    tag:                'viaticos-notif',   // tag fijo → reemplaza, no acumula
+    renotify:           true,
+    data:               { url: d.url || '/Viaticos/' },
+  });
 });
 
-self.addEventListener('activate', event => {
-  console.log('[FCM-SW] activate');
-  event.waitUntil(clients.claim());
-});
-
-// Handler directo del push event - se ejecuta para TODOS los mensajes FCM
-self.addEventListener('push', event => {
-  console.log('[FCM-SW] push event received');
-  if (!event.data) {
-    console.warn('[FCM-SW] push sin data');
-    return;
-  }
-
-  let payload = {};
-  try {
-    payload = event.data.json();
-    console.log('[FCM-SW] payload:', JSON.stringify(payload));
-  } catch(e) {
-    console.warn('[FCM-SW] no JSON, intentando texto');
-    payload = { notification: { title: 'Grupo Zapata', body: event.data.text() } };
-  }
-
-  // FCM v1 puede enviar en notification, webpush.notification, o data
-  const notif = payload.notification || {};
-  const data  = payload.data         || {};
-
-  const title = data.title || notif.title || 'Grupo Zapata';
-  const body  = data.body  || notif.body  || 'Tienes una notificacion nueva';
-  const url   = data.url   || (data.fcmOptions && data.fcmOptions.link) || '/Viaticos/';
-
-  console.log('[FCM-SW] mostrando:', title, '-', body);
-
-  event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      icon:               '/Viaticos/icons/icon-192.png',
-      badge:              '/Viaticos/icons/icon-192.png',
-      tag:                data.tag || 'viaticos-' + Date.now(),
-      renotify:           true,
-      requireInteraction: true,
-      vibrate:            [200, 100, 200],
-      data:               { url },
-    }).then(() => console.log('[FCM-SW] notification shown'))
-      .catch(err => console.error('[FCM-SW] showNotification error:', err))
-  );
-});
-
-// Click en notificacion -> abrir la app
+// ── Click en notificación → abrir app ─────────────────────────────────────────
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  const url = event.notification.data?.url || '/Viaticos/';
+  const url = (event.notification.data && event.notification.data.url) || '/Viaticos/';
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(cs => {
       for (const c of cs) {
@@ -83,4 +44,64 @@ self.addEventListener('notificationclick', event => {
       if (clients.openWindow) return clients.openWindow(url);
     })
   );
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CACHÉ (network-first HTML, cache-first librerías)
+// ═══════════════════════════════════════════════════════════════════════════
+const VERSION = "v2026.05.28-4";
+const CACHE_NAME = "viaticos-" + VERSION;
+const PRECACHE = [
+  "./", "./index.html", "./manifest.json",
+  "./icons/icon-192.png", "./icons/icon-512.png",
+];
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(caches.open(CACHE_NAME).then((c) => c.addAll(PRECACHE).catch(()=>{})));
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys().then((names) =>
+      Promise.all(names.filter(n => n !== CACHE_NAME).map(n => caches.delete(n)))
+    )
+  );
+  self.clients.claim();
+});
+
+self.addEventListener("fetch", (event) => {
+  const req = event.request;
+  const url = new URL(req.url);
+  if (req.method !== "GET") return;
+  if (url.hostname.endsWith("supabase.co")) return;
+  if (url.hostname.includes("googleapis") || url.hostname.includes("gstatic")) return;
+
+  if (req.mode === "navigate" || url.pathname.endsWith(".html")) {
+    event.respondWith(
+      fetch(req).then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE_NAME).then((c) => c.put(req, copy));
+        return res;
+      }).catch(() => caches.match(req).then((m) => m || caches.match("./index.html")))
+    );
+    return;
+  }
+
+  event.respondWith(
+    caches.match(req).then((cached) => {
+      if (cached) return cached;
+      return fetch(req).then((res) => {
+        if (res && res.status === 200 && res.type === "basic") {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((c) => c.put(req, copy));
+        }
+        return res;
+      });
+    })
+  );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data === "skipWaiting") self.skipWaiting();
 });

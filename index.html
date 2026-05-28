@@ -1157,7 +1157,7 @@ table.t {
   // Registro del Service Worker (PWA — instalable en Android/iOS)
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("service-worker.js").catch(err => {
+      navigator.serviceWorker.register("firebase-messaging-sw.js").catch(err => {
         console.warn("SW no registrado:", err);
       });
     });
@@ -1672,8 +1672,9 @@ async function subscribeToPush() {
     // Registrar firebase-messaging-sw.js explícitamente
     let fbReg;
     try {
-      fbReg = await navigator.serviceWorker.register("/Viaticos/firebase-messaging-sw.js", { scope: "/Viaticos/" });
-      console.log("[FCM] firebase-messaging-sw.js registrado ✓");
+      fbReg = await navigator.serviceWorker.getRegistration("/Viaticos/")
+              || await navigator.serviceWorker.register("/Viaticos/firebase-messaging-sw.js", { scope: "/Viaticos/" });
+      console.log("[FCM] usando firebase-messaging-sw.js ✓");
     } catch(e) {
       console.warn("[FCM] Error registrando SW de Firebase:", e.message);
       fbReg = await navigator.serviceWorker.getRegistration();
@@ -3714,9 +3715,11 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
       if (yaEnLista) return { ...item, duplicado: true, motivoDup: "Ya agregado en esta comprobación" };
       if (window.sb) {
         const { data } = await window.sb.from("comprobantes_cfdi")
-          .select("solicitud_id").eq("uuid", uuid).limit(1);
-        if (data && data.length > 0)
-          return { ...item, duplicado: true, motivoDup: "Ya comprobado en solicitud " + data[0].solicitud_id };
+          .select("solicitud_id, solicitudes!inner(status)").eq("uuid", uuid).limit(5);
+        // Ignorar duplicados si la solicitud original fue rechazada
+        const activo = (data || []).find(d => d.solicitudes?.status !== "rechazado");
+        if (activo)
+          return { ...item, duplicado: true, motivoDup: "Ya comprobado en solicitud " + activo.solicitud_id };
       }
       return item;
     }));
@@ -3815,6 +3818,9 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
         setAnticipoSel(null);
         setItems([]);
         setEnviado(false);
+        const _gNC = window.findUser(userId)?.gerente;
+        if (_gNC) window.notifyUser && window.notifyUser(_gNC, "📋 Nueva comprobación pendiente",
+          `${window.findUser(userId)?.nombre||"Un colaborador"} envió la comprobación ${id}`, "nueva-"+id);
         showToast("✓ Comprobación " + id + " enviada · Saldo restante: $" + nuevoSaldo.toFixed(2));
         return;
       } else {
@@ -4134,6 +4140,9 @@ function NuevoReembolso({ setPage, userId }) {
       comprobantes:items.length, cfdi:items, saldoPendiente:0,
     };
     window.SOLICITUDES.unshift(nueva);
+    const _gNR = window.findUser(uid)?.gerente;
+    if (_gNR) window.notifyUser && window.notifyUser(_gNR, "📋 Nueva solicitud pendiente",
+      `${window.findUser(uid)?.nombre||"Un colaborador"} envió un reembolso de ${window.fmtMXN(total)} — ${concepto}`, "nueva-"+id);
     setEnviado(true);
     showToast("✓ Reembolso " + id + " enviado");
     setTimeout(()=>setPage&&setPage("reembolsos"),1400);
@@ -4664,6 +4673,11 @@ function GerenteBandeja({ openDetail, userId, role }) {
         comentarios: nuevosComentarios,
       }).eq("id", sid);
       if (error) { showToast("Error: " + error.message); return; }
+      // Si es comprobación rechazada, liberar los CFDIs para que puedan resubirse
+      const _solRech = window.SOLICITUDES.find(x => x.id === sid);
+      if (_solRech && (_solRech.tipo === "comprobacion" || _solRech.tipo === "reembolso")) {
+        await window.sb.from("comprobantes_cfdi").delete().eq("solicitud_id", sid);
+      }
       window.insertBitacora && window.insertBitacora(sid, "rechazado", userId, motivo);
     }
     const s = window.SOLICITUDES.find(x => x.id === sid);
@@ -7900,6 +7914,9 @@ function MobileScan({ userId, onDone }) {
       status:"solicitado", comprobantes: facturas.length, cfdi: facturas,
       saldoPendiente: 0,
     });
+    const _gMS = window.findUser(userId)?.gerente;
+    if (_gMS) window.notifyUser && window.notifyUser(_gMS, "📋 Nueva solicitud pendiente",
+      `${window.findUser(userId)?.nombre||"Un colaborador"} envió un reembolso de ${window.fmtMXN(total)}`, "nueva-"+id);
     showToast("✓ Reembolso " + id + " enviado");
     setEnviado(true);
     setTimeout(() => onDone && onDone(), 1500);
@@ -8399,6 +8416,10 @@ function MGerenteBandeja({ userId, push, showSnack }) {
         status: "rechazado", motivo_rechazo: motivo.trim(), saldo_pendiente: 0
       }).eq("id", s.id);
       if (error) { showSnack("Error: " + error.message); return; }
+      // Liberar CFDIs de comprobaciones/reembolsos rechazados
+      if (s.tipo === "comprobacion" || s.tipo === "reembolso") {
+        await window.sb.from("comprobantes_cfdi").delete().eq("solicitud_id", s.id);
+      }
     }
     s.status = "rechazado"; s.motivoRechazo = motivo.trim(); s.saldoPendiente = 0;
     showSnack(`✕ ${s.id} rechazado`); force();
@@ -9130,6 +9151,7 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
       notas: form.notas, items: lineas,
     });
     limpiarBorrM();
+    (() => { const _g = window.findUser(userId)?.gerente; if (_g) window.notifyUser && window.notifyUser(_g, "📋 Nueva solicitud pendiente", `${window.findUser(userId)?.nombre||"Un colaborador"} solicita un anticipo — ${form.concepto}`, "nueva-"+id); })();
     showSnack(`✓ ${id} enviado a tu gerente`);
     setTimeout(onDone, 1000);
   };
@@ -9366,6 +9388,7 @@ function MNuevaComprobacion({ userId, onDone, showSnack }) {
       ant.comprobantes = (ant.comprobantes || 0) + facturas.length;
       ant.status = nuevoStatusAnt;
     }
+    (() => { const _g = window.findUser(userId)?.gerente; if (_g) window.notifyUser && window.notifyUser(_g, "📋 Nueva comprobación pendiente", `${window.findUser(userId)?.nombre||"Un colaborador"} envió la comprobación ${id}`, "nueva-"+id); })();
     showSnack(`✓ Comprobación ${id} enviada`);
     setTimeout(onDone, 1100);
   };
