@@ -9134,6 +9134,7 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
     concepto: "", centro: window.CENTROS[0]?.id || "",
     salida: "", regreso: "", destino: "", notas: "",
   });
+  const [showDatos, setShowDatos] = React.useState(false);
   const [lineas, setLineas] = React.useState(_borrM?.desglose || [
     { id: 1, nombre: "Pasajes", monto: 0, cuenta: "6122900001" },
   ]);
@@ -9213,8 +9214,11 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
       </div>
       <button className="btn primary" style={{width:"100%", justifyContent:"center", padding:"16px 20px", fontSize:15, fontWeight:700, marginBottom:18}} onClick={enviar}><Icon name="arrowR" size={15}/> Enviar a aprobación</button>
 
-      <div style={{fontSize:11, textTransform:"uppercase", letterSpacing:"0.08em", color:"var(--text-3)", margin:"4px 4px 10px", fontWeight:600}}>Datos del viaje</div>
-      <div className="m-card" style={{margin:"0 0 14px"}}>
+      <button onClick={()=>setShowDatos(s=>!s)} style={{display:"flex", alignItems:"center", justifyContent:"space-between", width:"100%", background:"none", border:"none", padding:"4px 4px 10px", cursor:"pointer", color:"var(--text-3)"}}>
+        <span style={{fontSize:11, textTransform:"uppercase", letterSpacing:"0.08em", fontWeight:600}}>Datos del viaje (opcional)</span>
+        <span style={{fontSize:14, fontWeight:600}}>{showDatos ? "▼" : "▶"}</span>
+      </button>
+      {showDatos && <div className="m-card" style={{margin:"0 0 14px"}}>
         <div style={{marginBottom:12}}>
           <label style={{fontSize:11, color:"var(--text-3)", fontWeight:500, display:"block", marginBottom:4}}>Concepto / motivo</label>
           <input className="input" placeholder="Ej. Visita comercial Monterrey" style={{width:"100%"}} value={form.concepto} onChange={e => upd("concepto", e.target.value)}/>
@@ -9235,7 +9239,7 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
             <input className="input" type="date" min={form.salida||undefined} style={{width:"100%"}} value={form.regreso} onChange={e => upd("regreso", e.target.value)}/>
           </div>
         </div>
-      </div>
+      </div>}
 
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8, padding:"0 4px"}}>
         <div style={{fontSize:11, textTransform:"uppercase", letterSpacing:"0.08em", color:"var(--text-3)", fontWeight:600}}>Desglose</div>
@@ -9253,8 +9257,7 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
         </div>
       ))}
 
-      <div style={{marginTop:16, display:"flex", flexDirection:"column", gap:8}}>
-        <button className="btn primary" style={{width:"100%", justifyContent:"center", padding:"14px 20px", fontSize:14, fontWeight:700}} onClick={enviar}><Icon name="arrowR" size={14}/> Enviar a aprobación</button>
+      <div style={{marginTop:16}}>
         <button className="btn ghost" style={{width:"100%", justifyContent:"center"}} onClick={guardarBorrador}>Guardar borrador</button>
       </div>
     </div>
