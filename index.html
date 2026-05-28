@@ -2613,7 +2613,7 @@ function generarNotificaciones(role, userId) {
   }
 
   if (role === "gerente") {
-    const teamIds = window.USUARIOS.filter(u => u.gerente === userId).map(u => u.id);
+    const teamIds = window.USUARIOS.filter(u => u.gerente === userId && u.rol !== "gerente" && u.rol !== "admin").map(u => u.id);
 
     // ── 4. Solicitudes sin respuesta más de 48h ───────────────────────────
     todos.filter(s =>
@@ -4563,15 +4563,20 @@ Object.assign(window, { UserDashboard, SolicitarAnticipo, NuevaComprobacion, Ree
 function GerenteBandeja({ openDetail, userId, role }) {
   const CENTRO_ADMIN = "100010009";
   const userObj = userId ? window.findUser(userId) : null;
-  const esAdmin = !role || role === "admin" ||
-    (userObj && userObj.centro === CENTRO_ADMIN);
+  const esAdmin = role === "admin";
   const gerenteId = userId || "U101";
+  // Siempre filtrar por equipo directo (usuarios cuyo gerente === gerenteId)
+  // Si es admin ve todo (teamIds = null), si es gerente solo ve su equipo
   const teamIds = esAdmin
-    ? null  // admin de área ve todas las solicitudes
-    : window.USUARIOS.filter(u => u.gerente === gerenteId).map(u => u.id);
+    ? null
+    : window.USUARIOS
+        .filter(u => u.gerente === gerenteId && u.rol !== "gerente" && u.rol !== "admin")
+        .map(u => u.id);
 
   const [items, setItems] = React.useState(() =>
-    window.SOLICITUDES.filter(s => s.status === "solicitado" && (teamIds === null || teamIds.includes(s.usuario)))
+    window.SOLICITUDES.filter(s => s.status === "solicitado"
+      && s.usuario !== gerenteId                                    // excluir sus propias solicitudes
+      && (teamIds === null || teamIds.includes(s.usuario)))
   );
   const [filtro, setFiltro]     = React.useState("todas");
   const [busqueda, setBusqueda] = React.useState("");
@@ -8352,7 +8357,7 @@ function MGerenteBandeja({ userId, push, showSnack }) {
     if (!window.sb) return;
     let query = window.sb.from("solicitudes").select("*").eq("status","solicitado");
     if (!esAdmin) {
-      const teamIds = window.USUARIOS.filter(u => u.gerente === userId).map(u => u.id);
+      const teamIds = window.USUARIOS.filter(u => u.gerente === userId && u.rol !== "gerente" && u.rol !== "admin").map(u => u.id);
       if (!teamIds.length) return;
       query = query.in("usuario_id", teamIds);
     }
@@ -8370,8 +8375,10 @@ function MGerenteBandeja({ userId, push, showSnack }) {
         forceMGB();
       });
   }, [userId]);
-  const teamIds = window.USUARIOS.filter(u => u.gerente === userId).map(u => u.id);
-  const all = window.SOLICITUDES.filter(s => s.status === "solicitado" && (esAdmin || teamIds.includes(s.usuario)));
+  const teamIds = window.USUARIOS.filter(u => u.gerente === userId && u.rol !== "gerente" && u.rol !== "admin").map(u => u.id);
+  const all = window.SOLICITUDES.filter(s => s.status === "solicitado"
+      && s.usuario !== userId                                       // excluir sus propias
+      && (esAdmin || teamIds.includes(s.usuario)));
   const [, force] = React.useReducer(x => x + 1, 0);
   const aprobar = async (s) => {
     if (window.sb) {
@@ -8471,7 +8478,7 @@ function MGerenteEquipo({ userId, push }) {
 }
 
 function MGerenteHistorial({ userId, push }) {
-  const teamIds = window.USUARIOS.filter(u => u.gerente === userId).map(u => u.id);
+  const teamIds = window.USUARIOS.filter(u => u.gerente === userId && u.rol !== "gerente" && u.rol !== "admin").map(u => u.id);
   const data = window.SOLICITUDES.filter(s => teamIds.includes(s.usuario) && s.status !== "solicitado");
   return (
     <div className="m-pad">
