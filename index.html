@@ -10621,6 +10621,7 @@ window._notifPollingTimer = null;
 
 async function checkNotificacionesPendientes(role, userId) {
   if (!window.sb || !window.SB_SESSION) return;
+  if (!userId || userId === "undefined") return;
   if (Notification.permission !== "granted") return;
 
   try {
