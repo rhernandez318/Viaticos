@@ -20,7 +20,7 @@ messaging.onBackgroundMessage(payload => {
   const n   = payload.notification || {};
   const d   = payload.data || {};
   const title = n.title || d.title || 'Viáticos';
-  const body  = n.body  || d.body  || '';
+  const body  = d.body  || n.body  || 'Revisa la app para ver los detalles.';
 
   self.registration.showNotification(title, {
     body,
