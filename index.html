@@ -11369,6 +11369,18 @@ function App() {
         // Iniciar polling de notificaciones si el usuario ya activó permisos
         if (Notification.permission === "granted") {
           window.startNotifPolling && window.startNotifPolling(role, userId);
+          // Registrar onMessage de Firebase para mensajes en primer plano
+          window.initFCM && window.initFCM().then(messaging => {
+            if (!messaging) return;
+            messaging.onMessage(payload => {
+              const d = payload.data || payload.notification || {};
+              const title = d.title || "Grupo Zapata";
+              const body  = d.body  || "";
+              window.sendLocalNotification && window.sendLocalNotification(title, body, "fcm-fg");
+              window.FCM_NOTIFS = window.FCM_NOTIFS || [];
+              window.FCM_NOTIFS.unshift({ id:"fcm_"+Date.now(), tipo:"info", icon:"bell", titulo:title, texto:body, ts:new Date() });
+            });
+          });
         }
         // Si RLS bloqueó todo (0 catálogos = sesión inválida), forzar re-login
         if (window.USUARIOS.length === 0 && window.CENTROS.length === 0) {
