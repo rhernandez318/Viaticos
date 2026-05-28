@@ -2,7 +2,7 @@
 // Estrategia: network-first para el HTML (siempre la última versión)
 //             cache-first para librerías CDN (React, Babel, Supabase)
 
-const VERSION = "v2026.05.27-10";
+const VERSION = "v2026.05.27-11";
 const CACHE_NAME = "viaticos-" + VERSION;
 
 // Recursos críticos que pre-cacheamos
@@ -75,39 +75,3 @@ self.addEventListener("message", (event) => {
 });
 
 
-// ── Web Push ─────────────────────────────────────────────────────────────────
-self.addEventListener('push', event => {
-  if (!event.data) return;
-  let data = {};
-  try { data = event.data.json(); } catch(e) { data = { title: event.data.text() }; }
-
-  const title   = data.title || 'Viáticos Casa Zapata';
-  const options = {
-    body:               data.body    || 'Tienes una notificación pendiente.',
-    icon:               data.icon    || '/Viaticos/icons/icon-192.png',
-    badge:              data.badge   || '/Viaticos/icons/icon-192.png',
-    tag:                data.tag     || 'viaticos-notif',
-    renotify:           true,
-    requireInteraction: true,
-    vibrate:            [200, 100, 200],
-    data:               data.data    || {},
-    actions:            data.actions || [],
-  };
-
-  event.waitUntil(self.registration.showNotification(title, options));
-});
-
-self.addEventListener('notificationclick', event => {
-  event.notification.close();
-  const url = event.notification.data?.url || '/Viaticos/';
-  event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
-      for (const client of windowClients) {
-        if (client.url.includes('/Viaticos/') && 'focus' in client) {
-          return client.focus();
-        }
-      }
-      if (clients.openWindow) return clients.openWindow(url);
-    })
-  );
-});
