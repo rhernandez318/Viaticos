@@ -8580,7 +8580,7 @@ function MTesoreriaLiberar({ push, showSnack }) {
         forceMTL();
       });
   }, []);
-  const [items, setItems] = React.useState(() => window.SOLICITUDES.filter(s => s.status === "autorizado"));
+  const items = window.SOLICITUDES.filter(s => s.status === "autorizado");
   const liberar = async (id) => {
     const s = window.SOLICITUDES.find(x => x.id === id);
     if (!s) return;
@@ -8602,7 +8602,7 @@ function MTesoreriaLiberar({ push, showSnack }) {
     s.status = newStatus;
     if (s.tipo === "anticipo") s.saldoPendiente = s.monto;
     if (s.tipo === "comprobacion") s.saldoPendiente = 0;
-    setItems(items.filter(i => i.id !== id));
+    forceMTL();
     showSnack(`✓ ${id} dispersado vía SPEI`);
   };
   return (
