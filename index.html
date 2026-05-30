@@ -4590,8 +4590,8 @@ Object.assign(window, { UserDashboard, SolicitarAnticipo, NuevaComprobacion, Ree
 // ═══ role-pages ═══
 // Viáticos — Gerente, Tesorería, Admin pages
 
-function GerenteBandeja({
-  useDataRefresh(); openDetail, userId, role }) {
+function GerenteBandeja({ openDetail, userId, role }) {
+  useDataRefresh();
   const CENTRO_ADMIN = "100010009";
   const userObj = userId ? window.findUser(userId) : null;
   const esAdmin = role === "admin";
