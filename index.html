@@ -1307,6 +1307,7 @@ async function loadFromDB() {
     }));
 
     console.log(`✓ Catálogos cargados: ${CENTROS.length} centros, ${CATALOGO_GASTOS.length} cuentas, ${USUARIOS.length} usuarios`);
+    window.dispatchEvent(new CustomEvent('viaticos:catalogos'));
     // Guardar en caché para la próxima carga
     try {
       localStorage.setItem("viaticos_catalogs", JSON.stringify({
@@ -1423,6 +1424,7 @@ async function loadSolicitudes() {
     });
 
     console.log(`✓ Solicitudes cargadas: ${SOLICITUDES.length}`);
+    window.dispatchEvent(new CustomEvent('viaticos:solicitudes'));
     // Guardar solicitudes recientes en caché (últimas 100)
     try {
       const toCache = SOLICITUDES.slice(0, 100).map(s => ({
@@ -4588,7 +4590,8 @@ Object.assign(window, { UserDashboard, SolicitarAnticipo, NuevaComprobacion, Ree
 // ═══ role-pages ═══
 // Viáticos — Gerente, Tesorería, Admin pages
 
-function GerenteBandeja({ openDetail, userId, role }) {
+function GerenteBandeja({
+  useDataRefresh(); openDetail, userId, role }) {
   const CENTRO_ADMIN = "100010009";
   const userObj = userId ? window.findUser(userId) : null;
   const esAdmin = role === "admin";
@@ -5337,8 +5340,26 @@ function EditModal({ title, fields, onClose, onSave, onDelete, onBlock, blocked,
   );
 }
 
+
+// ── Hook: auto-refresh on data events ────────────────────────────────────────
+function useDataRefresh() {
+  const [, forceRefresh] = React.useReducer(x => x + 1, 0);
+  React.useEffect(() => {
+    const handler = () => forceRefresh();
+    window.addEventListener('viaticos:catalogos', handler);
+    window.addEventListener('viaticos:solicitudes', handler);
+    return () => {
+      window.removeEventListener('viaticos:catalogos', handler);
+      window.removeEventListener('viaticos:solicitudes', handler);
+    };
+  }, []);
+  return forceRefresh;
+}
+
 function AdminUsuarios() {
-  const [users, setUsers]   = React.useState(window.USUARIOS);
+  useDataRefresh();
+  const users = window.USUARIOS;
+  const setUsers = (fn) => { window.USUARIOS = typeof fn === "function" ? fn(window.USUARIOS) : fn; };
   const [editing, setEditing] = React.useState(null);
   const [filtro, setFiltro]   = React.useState("todos");
   const [busqueda, setBusqueda] = React.useState("");
@@ -5611,7 +5632,9 @@ function AdminUsuarios() {
 }
 
 function AdminCentros() {
-  const [centros, setCentros] = React.useState(window.CENTROS);
+  useDataRefresh();
+  const centros = window.CENTROS;
+  const setCentros = (fn) => { window.CENTROS = typeof fn === "function" ? fn(window.CENTROS) : fn; };
   const [editing, setEditing] = React.useState(null);
   const [busqueda, setBusqueda] = React.useState("");
 
@@ -8915,7 +8938,9 @@ function MAdminHome({ push, goToPage, setTab }) {
 }
 
 function MAdminUsuarios() {
-  const [users, setUsers] = React.useState(window.USUARIOS);
+  useDataRefresh();
+  const users = window.USUARIOS;
+  const setUsers = (fn) => { window.USUARIOS = typeof fn === "function" ? fn(window.USUARIOS) : fn; };
   const [editing, setEditing] = React.useState(null);
   const [busqueda, setBusqueda] = React.useState("");
 
@@ -9053,7 +9078,9 @@ function MAdminUsuarios() {
 }
 
 function MAdminCentros() {
-  const [centros, setCentros] = React.useState(window.CENTROS);
+  useDataRefresh();
+  const centros = window.CENTROS;
+  const setCentros = (fn) => { window.CENTROS = typeof fn === "function" ? fn(window.CENTROS) : fn; };
   const [editing, setEditing] = React.useState(null);
   const [busqueda, setBusqueda] = React.useState("");
 
