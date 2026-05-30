@@ -2405,6 +2405,7 @@ const NAV = {
     { id: "pagados",   label: "Pagados",            icon: "check" },
     { id: "deudores",  label: "Deudores",           icon: "flag" },
     { id: "reportes",  label: "Reportes",           icon: "chart" },
+    { id: "usuarios",  label: "Usuarios",           icon: "users" },
   ],
   admin: [
     { id: "usuarios",  label: "Usuarios",           icon: "users" },
@@ -5149,16 +5150,57 @@ function TesoreriaBandeja({ openDetail }) {
 
   const exportarSPEI = () => {
     const sel = items.filter(i => selected.has(i.id));
-    const rows = [["Folio","Beneficiario","CLABE","Banco","Monto","Concepto"]];
-    sel.forEach(s => {
-      const u = window.findUser(s.usuario);
-      rows.push([s.id, u.nombre, "••••4392", "BBVA", s.monto, s.concepto]);
+    if (sel.length === 0) { alert("Selecciona al menos una solicitud"); return; }
+    const headers = ["Folio","Beneficiario","CLABE","Banco","RFC","Monto","Concepto"];
+    const dataRows = sel.map(s => {
+      const u = window.findUser(s.usuario) || {};
+      return {
+        Folio: s.id,
+        Beneficiario: u.nombre || "",
+        CLABE: u.clabe ? String(u.clabe).replace(/\s/g,"").trim() : "",
+        Banco: u.banco || "",
+        RFC:   u.rfc   || "",
+        Monto: Number(s.monto) || 0,
+        Concepto: s.concepto || "",
+      };
     });
-    const csv = rows.map(r=>r.map(c=>'"'+String(c).replace(/"/g,'""')+'"').join(',')).join('\n');
-    const a = document.createElement("a");
-    a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csv);
-    a.download = `layout_spei_${new Date().toISOString().slice(0,10)}.csv`;
-    a.click();
+    if (typeof XLSX !== "undefined") {
+      const ws = XLSX.utils.json_to_sheet(dataRows, {header: headers});
+      const range = XLSX.utils.decode_range(ws["!ref"]);
+      // Forzar CLABE (col 2) y RFC (col 4) como texto para evitar notación científica
+      for (let r = range.s.r + 1; r <= range.e.r; r++) {
+        [2, 4].forEach(colIdx => {
+          const ref = XLSX.utils.encode_cell({r, c: colIdx});
+          if (ws[ref]) { ws[ref].t = "s"; ws[ref].z = "@"; }
+        });
+      }
+      ws["!cols"] = [{wch:14},{wch:30},{wch:22},{wch:18},{wch:15},{wch:12},{wch:30}];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "SPEI");
+      XLSX.writeFile(wb, `layout_spei_${new Date().toISOString().slice(0,10)}.xlsx`);
+    } else {
+      // Fallback CSV
+      const csvRows = [headers.join(",")];
+      dataRows.forEach(r => {
+        csvRows.push([
+          `"${r.Folio}"`,
+          `"${r.Beneficiario.replace(/"/g,'""')}"`,
+          `"=""${r.CLABE}"""`,  // Excel: ="..." preserva como texto
+          `"${r.Banco}"`,
+          `"=""${r.RFC}"""`,
+          r.Monto,
+          `"${r.Concepto.replace(/"/g,'""')}"`,
+        ].join(","));
+      });
+      const csv = "\uFEFF" + csvRows.join("\n");
+      const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `layout_spei_${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
   };
 
   const countsTeso = {
@@ -5356,7 +5398,7 @@ function useDataRefresh() {
   return forceRefresh;
 }
 
-function AdminUsuarios() {
+function AdminUsuarios({ role = "admin" } = {}) {
   useDataRefresh();
   const users = window.USUARIOS;
   const setUsers = (fn) => { window.USUARIOS = typeof fn === "function" ? fn(window.USUARIOS) : fn; };
@@ -5425,6 +5467,7 @@ function AdminUsuarios() {
           nombre: toApply.nombre, rol: toApply.rol,
           centro: toApply.centro||null, gerente: toApply.gerente||null,
           division: toApply.division||"4105",
+          clabe: toApply.clabe||null, banco: toApply.banco||null,
         });
         if (!data.id) { showToastU("Error: " + (data.message||"No se pudo crear"), false); return; }
         const newUser = {...toApply, id: data.id, iniciales, activo: true};
@@ -5542,6 +5585,10 @@ function AdminUsuarios() {
               hint: users.find(u=>u.id===editing.id)
                 ? "El usuario podrá cambiarla desde su perfil"
                 : "El usuario podrá cambiarla desde su perfil al iniciar sesión"},
+            {key:"clabe", label:"CLABE bancaria (18 dígitos)", value:editing.clabe||"", full:true,
+              placeholder:"Ej: 012180001234567439", hint:"Para dispersión SPEI — solo admin y tesorería"},
+            {key:"banco", label:"Banco", value:editing.banco||"", full:true,
+              placeholder:"Ej: BBVA México", hint:"Banco emisor de la CLABE"},
           ]}
           onClose={() => setEditing(null)}
           onSave={save}
@@ -8630,24 +8677,62 @@ function MTesoreriaLiberar({ push, showSnack }) {
   };
     const generarLayoutSPEI = () => {
     if (items.length === 0) { showSnack("No hay solicitudes para dispersar"); return; }
-    const rows = [
-      ["Referencia","Concepto","Monto","Nombre Beneficiario","CLABE","RFC","Banco"]
-    ];
-    items.forEach(s => {
+    // Genera XLSX si SheetJS está disponible (formato CLABE como texto), si no, CSV
+    const headers = ["Referencia","Concepto","Monto","Nombre Beneficiario","CLABE","RFC","Banco"];
+    const dataRows = items.map(s => {
       const u = window.findUser(s.usuario);
-      const clabe = (u && u.clabe) ? u.clabe.trim() : "";
-      const rfc = (u && u.rfc) ? u.rfc.trim() : "";
-      const banco = (u && u.banco) ? u.banco.trim() : "";
-      rows.push([s.id, s.concepto, s.monto, u?.nombre||"", clabe, rfc, banco]);
+      const clabe = (u && u.clabe) ? String(u.clabe).replace(/\s/g,"").trim() : "";
+      const rfc   = (u && u.rfc)   ? String(u.rfc).trim() : "";
+      const banco = (u && u.banco) ? String(u.banco).trim() : "";
+      return {
+        Referencia: s.id,
+        Concepto:   s.concepto || "",
+        Monto:      Number(s.monto) || 0,
+        Beneficiario: u?.nombre || "",
+        CLABE:      clabe,
+        RFC:        rfc,
+        Banco:      banco,
+      };
     });
-    const csv = rows.map(r => r.map(v => `"${v}"`).join(",")).join("\n");
-    const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `SPEI_${new Date().toISOString().slice(0,10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    if (typeof XLSX !== "undefined") {
+      // XLSX preserva CLABE como texto (no notación científica)
+      const ws = XLSX.utils.json_to_sheet(dataRows, {header:["Referencia","Concepto","Monto","Beneficiario","CLABE","RFC","Banco"]});
+      // Forzar columna CLABE como texto
+      const range = XLSX.utils.decode_range(ws["!ref"]);
+      for (let r = range.s.r + 1; r <= range.e.r; r++) {
+        const cellRef = XLSX.utils.encode_cell({r, c: 4}); // columna CLABE (índice 4)
+        if (ws[cellRef]) { ws[cellRef].t = "s"; ws[cellRef].z = "@"; }
+        const rfcRef = XLSX.utils.encode_cell({r, c: 5});
+        if (ws[rfcRef]) { ws[rfcRef].t = "s"; ws[rfcRef].z = "@"; }
+      }
+      // Anchos de columna
+      ws["!cols"] = [{wch:14},{wch:30},{wch:12},{wch:28},{wch:22},{wch:15},{wch:18}];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "SPEI");
+      XLSX.writeFile(wb, `SPEI_${new Date().toISOString().slice(0,10)}.xlsx`);
+    } else {
+      // Fallback CSV con BOM UTF-8 y CLABE como texto (apóstrofe = texto en Excel)
+      const csvRows = [headers.join(",")];
+      dataRows.forEach(r => {
+        csvRows.push([
+          `"${r.Referencia}"`,
+          `"${(r.Concepto||"").replace(/"/g,'""')}"`,
+          r.Monto,
+          `"${r.Beneficiario}"`,
+          `"=""${r.CLABE}"""`, // Excel formula trick: ="123..." = text cell
+          `"${r.RFC}"`,
+          `"${r.Banco}"`,
+        ].join(","));
+      });
+      const csv = "\uFEFF" + csvRows.join("\n");
+      const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `SPEI_${new Date().toISOString().slice(0,10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+    }
     showSnack("✓ Layout SPEI descargado");
   };
   return (
@@ -10237,8 +10322,8 @@ function PerfilPage({ userId, onLogout }) {
             <div className="field"><label>Correo electrónico</label><input className="input" defaultValue={u.correo}/></div>
             <div className="field"><label>Centro de beneficio</label><input className="input" disabled value={`${c.id} · ${c.nombre}`}/></div>
             <div className="field"><label>Reporta a</label><input className="input" disabled value={g ? g.nombre : "—"}/></div>
-            <div className="field"><label>CLABE bancaria</label><input className="input mono" defaultValue="012 180 01234567 4392"/></div>
-            <div className="field"><label>Banco</label><input className="input" defaultValue="BBVA México"/></div>
+            <div className="field"><label>CLABE bancaria</label><input className="input mono" value={u.clabe||""} disabled style={{opacity:.7, cursor:"not-allowed"}}/><div style={{fontSize:11, color:"var(--text-3)", marginTop:4}}>Para cambiar tu CLABE, contacta a Tesorería</div></div>
+            <div className="field"><label>Banco</label><input className="input" value={u.banco||""} disabled style={{opacity:.7, cursor:"not-allowed"}}/></div>
           </div>
           <div style={{marginTop:18, display:"flex", justifyContent:"flex-end", gap:8}}>
             <button className="btn ghost">Cancelar</button>
@@ -10894,12 +10979,13 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     if (page === "pagados")    return <TesoreriaPagados openDetail={setDetailId}/>;
     if (page === "deudores")   return <Deudores role={role} userId={userId}/>;
     if (page === "reportes")   return <Reportes role={role} userId={userId}/>;
+    if (page === "usuarios")   return <AdminUsuarios role={role}/>;
     return <TesoreriaBandeja openDetail={setDetailId}/>;
   }
 
   if (role === "admin") {
     // Admin páginas propias
-    if (page === "usuarios")  return <AdminUsuarios/>;
+    if (page === "usuarios")  return <AdminUsuarios role={role}/>;
     if (page === "centros")   return <AdminCentros/>;
     if (page === "catalogo")  return <AdminCatalogo/>;
     if (page === "reportes")  return <Reportes role={role} userId={userId}/>;
