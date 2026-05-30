@@ -8605,6 +8605,28 @@ function MTesoreriaLiberar({ push, showSnack }) {
     forceMTL();
     showSnack(`✓ ${id} dispersado vía SPEI`);
   };
+    const generarLayoutSPEI = () => {
+    if (items.length === 0) { showSnack("No hay solicitudes para dispersar"); return; }
+    const rows = [
+      ["Referencia","Concepto","Monto","Nombre Beneficiario","CLABE","RFC","Banco"]
+    ];
+    items.forEach(s => {
+      const u = window.findUser(s.usuario);
+      const clabe = (u && u.clabe) ? u.clabe.trim() : "";
+      const rfc = (u && u.rfc) ? u.rfc.trim() : "";
+      const banco = (u && u.banco) ? u.banco.trim() : "";
+      rows.push([s.id, s.concepto, s.monto, u?.nombre||"", clabe, rfc, banco]);
+    });
+    const csv = rows.map(r => r.map(v => `"${v}"`).join(",")).join("\n");
+    const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `SPEI_${new Date().toISOString().slice(0,10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    showSnack("✓ Layout SPEI descargado");
+  };
   return (
     <div className="m-pad">
       <div style={{paddingTop:4, marginBottom:14}}>
@@ -8621,7 +8643,7 @@ function MTesoreriaLiberar({ push, showSnack }) {
           <div style={{fontFamily:"var(--f-display)", fontSize:15, fontWeight:600, marginTop:2}}>{window.fmtMXN(items.reduce((a,s)=>a+s.monto,0))}</div>
         </div>
       </div>
-      {items.length > 0 && <button className="btn primary" style={{width:"100%", justifyContent:"center", marginBottom:12}}><Icon name="download" size={13}/> Generar layout SPEI ({items.length})</button>}
+      {items.length > 0 && <button className="btn primary" style={{width:"100%", justifyContent:"center", marginBottom:12}} onClick={generarLayoutSPEI}><Icon name="download" size={13}/> Generar layout SPEI ({items.length})</button>}
       {items.length === 0 && <M_Empty icon="check" title="Todo liberado" sub="No hay solicitudes pendientes de dispersión"/>}
       {items.map(s => {
         const u = window.findUser(s.usuario);
