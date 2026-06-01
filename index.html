@@ -8900,7 +8900,7 @@ function MGerenteBandeja({ userId, push, showSnack }) {
           : (<><SkeletonStats count={2}/><SkeletonCard/><SkeletonCard/></>)
         )}
       {all.map(s => {
-        const u = window.findUser(s.usuario);
+        const u = window.findUser(s.usuario) || { iniciales: "??", nombre: "Usuario desconocido" };
         const dias = Math.floor((window.HOY - s.fecha) / (1000*60*60*24));
         return (
           <div key={s.id} className="m-card">
@@ -9113,7 +9113,7 @@ function MTesoreriaLiberar({ push, showSnack }) {
           : (<><SkeletonStats count={2}/><SkeletonCard/><SkeletonCard/><SkeletonCard/></>)
       )}
       {items.map(s => {
-        const u = window.findUser(s.usuario);
+        const u = window.findUser(s.usuario) || { iniciales: "??", nombre: "Usuario desconocido" };
         return (
           <div key={s.id} className="m-card">
             <div style={{display:"flex", gap:10, marginBottom:6}}>
