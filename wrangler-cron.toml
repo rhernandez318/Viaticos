@@ -1,0 +1,12 @@
+# wrangler.toml — agregar esta sección al archivo existente en el repo
+
+# Cron Triggers — ejecuta el handler "scheduled" automáticamente
+[triggers]
+crons = [
+  "0 14 * * *"   # Todos los días a las 14:00 UTC = 8:00 AM hora CDMX
+]
+
+# Si ya tienes [triggers] en tu wrangler.toml, solo agrega la línea crons.
+# Para probar localmente: wrangler dev --test-scheduled
+# Para disparar manualmente desde producción:
+#   curl "https://viaticos-admin.rhernandez-e52.workers.dev/__scheduled?cron=0+14+*+*+*"
