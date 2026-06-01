@@ -5624,17 +5624,21 @@ function AdminUsuarios({ role = "admin" } = {}) {
     setTimeout(() => setToastU(null), 4000);
   };
 
-  const WORKER_URL = "https://viaticos-admin.rhernandez-e52.workers.dev";
+ const WORKER_URL = "https://viaticos-admin.rhernandez-e52.workers.dev";
+const WORKER_SECRET_TOKEN = "viaticos-zapata-push-2026"; // mismo token que usas en notify
 
-  const callWorker = async (action, payload) => {
-    const res = await fetch(WORKER_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, payload }),
-    });
-    if (!res.ok) throw new Error("Worker " + res.status);
-    return res.json();
-  };
+const callWorker = async (action, payload) => {
+  const res = await fetch(WORKER_URL, {
+    method: "POST",
+    headers: { 
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + WORKER_SECRET_TOKEN  // ← esta es la línea que faltaba
+    },
+    body: JSON.stringify({ action, payload }),
+  });
+  if (!res.ok) throw new Error("Worker " + res.status);
+  return res.json();
+};
 
   const save = async (vals) => {
     const iniciales = (vals.nombre||"").split(" ").map(p=>p[0]).slice(0,2).join("").toUpperCase();
