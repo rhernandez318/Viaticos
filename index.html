@@ -9369,6 +9369,22 @@ function MAdminHome({ push, goToPage, setTab }) {
           <div className="muted" style={{fontSize:11, marginTop:2}}>Dashboard completo</div>
         </div>
       </div>
+      <div style={{fontSize:11, textTransform:"uppercase", letterSpacing:"0.08em", color:"var(--text-3)", margin:"14px 4px 8px", fontWeight:600}}>Tesorería</div>
+      <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:14}}>
+        <div className="m-card" style={{margin:0, padding:12, cursor:"pointer", textAlign:"center"}} onClick={() => setTab("liberar")}>
+          <div style={{width:32, height:32, borderRadius:8, background:"var(--success-soft)", color:"var(--success)", display:"grid", placeItems:"center", margin:"0 auto 6px"}}><Icon name="cash" size={15}/></div>
+          <div style={{fontSize:11.5, fontWeight:500}}>Liberar</div>
+        </div>
+        <div className="m-card" style={{margin:0, padding:12, cursor:"pointer", textAlign:"center"}} onClick={() => setTab("pagados")}>
+          <div style={{width:32, height:32, borderRadius:8, background:"var(--accent-soft)", color:"var(--accent)", display:"grid", placeItems:"center", margin:"0 auto 6px"}}><Icon name="check" size={15}/></div>
+          <div style={{fontSize:11.5, fontWeight:500}}>Pagados</div>
+        </div>
+        <div className="m-card" style={{margin:0, padding:12, cursor:"pointer", textAlign:"center"}} onClick={() => setTab("deudores")}>
+          <div style={{width:32, height:32, borderRadius:8, background:"var(--danger-soft)", color:"var(--danger)", display:"grid", placeItems:"center", margin:"0 auto 6px"}}><Icon name="flag" size={15}/></div>
+          <div style={{fontSize:11.5, fontWeight:500}}>Deudores</div>
+        </div>
+      </div>
+
       <div style={{fontSize:11, textTransform:"uppercase", letterSpacing:"0.08em", color:"var(--text-3)", margin:"14px 4px 8px", fontWeight:600}}>Sistema</div>
       <div className="m-card" style={{display:"flex", alignItems:"center", gap:12}}>
         <div style={{width:36, height:36, borderRadius:10, background:"var(--surface-2)", display:"grid", placeItems:"center"}}><Icon name="settings" size={16}/></div>
@@ -10715,6 +10731,9 @@ function MobileApp({ userId, role, onLogout, setPage, openDetail }) {
       if (tab === "usuarios") { headerTitle = "Usuarios"; body = <MAdminUsuarios/>; }
       if (tab === "centros")  { headerTitle = "Centros"; body = <MAdminCentros/>; }
       if (tab === "reportes") { body = <MReportes role={role} userId={userId}/>; }
+      if (tab === "liberar")  { headerTitle = "Liberar"; body = <MTesoreriaLiberar push={push} showSnack={showSnack}/>; }
+      if (tab === "pagados")  { headerTitle = "Pagados"; body = <MTesoreriaPagados push={push}/>; }
+      if (tab === "deudores") { headerTitle = "Deudores"; body = <MTesoreriaDeudores push={push}/>; }
       if (tab === "profile")  { headerTitle = "Mi perfil"; body = <MProfile userId={userId} onLogout={onLogout}/>; }
     }
   }
