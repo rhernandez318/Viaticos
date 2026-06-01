@@ -5624,19 +5624,38 @@ function AdminUsuarios({ role = "admin" } = {}) {
     setTimeout(() => setToastU(null), 4000);
   };
 
- const WORKER_URL = "https://viaticos-admin.rhernandez-e52.workers.dev";
-const WORKER_SECRET_TOKEN = "viaticos-zapata-push-2026"; // mismo token que usas en notify
+const WORKER_BASE = "https://viaticos-admin.rhernandez-e52.workers.dev";
+const WORKER_SECRET_TOKEN = "viaticos-zapata-push-2026";
 
 const callWorker = async (action, payload) => {
-  const res = await fetch(WORKER_URL, {
+  let endpoint;
+  switch (action) {
+    case "createUser":
+      endpoint = "/createUser";
+      break;
+    case "deleteUser":
+      endpoint = "/deleteUser";
+      break;
+    case "resetPassword":
+      endpoint = "/resetPassword";
+      break;
+    default:
+      endpoint = "/notify";
+  }
+  
+  const res = await fetch(WORKER_BASE + endpoint, {
     method: "POST",
     headers: { 
       "Content-Type": "application/json",
-      "Authorization": "Bearer " + WORKER_SECRET_TOKEN  // ← esta es la línea que faltaba
+      "Authorization": "Bearer " + WORKER_SECRET_TOKEN
     },
-    body: JSON.stringify({ action, payload }),
+    body: JSON.stringify(payload),  // ← directo, sin anidar {action, payload}
   });
-  if (!res.ok) throw new Error("Worker " + res.status);
+  
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Worker ${res.status}`);
+  }
   return res.json();
 };
 
@@ -5658,7 +5677,7 @@ const callWorker = async (action, payload) => {
           const { error } = await window.sb.from("usuarios").update(row).eq("id", editing.id);
           if (error) { showToastU("Error: " + error.message, false); return; }
           if (toApply.password && toApply.password.trim())
-            await callWorker("resetPassword", { id: editing.id, password: toApply.password.trim() });
+            await callWorker("resetPassword", { userId: editing.id, newPassword: toApply.password.trim() });
         }
         const updated = users.map(u => u.id===editing.id ? {...u,...toApply} : u);
         const wu = window.USUARIOS.find(u => u.id===editing.id);
@@ -5670,7 +5689,7 @@ const callWorker = async (action, payload) => {
         if (!toApply.correo?.trim()) { showToastU("Correo obligatorio", false); return; }
         showToastU("Creando usuario…");
         const data = await callWorker("createUser", {
-          correo: toApply.correo.trim(),
+          email: toApply.correo.trim(),
           password: toApply.password?.trim() || "Temporal1234!",
           nombre: toApply.nombre, rol: toApply.rol,
           centro: toApply.centro||null, gerente: toApply.gerente||null,
