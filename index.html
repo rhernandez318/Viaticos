@@ -1142,6 +1142,17 @@ table.t {
 *::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 5px; }
 *::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
 
+
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 0%, var(--border) 50%, var(--surface-2) 100%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  display: block;
+}
+@keyframes skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
 </style>
   <!-- Firebase -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -1424,6 +1435,7 @@ async function loadSolicitudes() {
     });
 
     console.log(`✓ Solicitudes cargadas: ${SOLICITUDES.length}`);
+    window.DB_LOADED = true;
     window.dispatchEvent(new CustomEvent('viaticos:solicitudes'));
     // Guardar solicitudes recientes en caché (últimas 100)
     try {
@@ -3178,6 +3190,60 @@ function SolicitarAnticipo({ setPage, userId }) {
     monto: "8,500.00",
     notas: "Reuniones con cliente Aceros del Norte. Hospedaje 2 noches y vuelo redondo.",
   });
+
+  // ── Plantillas ────────────────────────────────────────────────────────────
+  const [plantillas, setPlantillas] = React.useState([]);
+  const [mostrarPlantillas, setMostrarPlantillas] = React.useState(false);
+  
+  React.useEffect(() => {
+    if (!window.sb || !userId) return;
+    window.sb.from("plantillas_anticipo")
+      .select("*").eq("usuario_id", userId).order("uso_count", {ascending:false})
+      .then(({data}) => setPlantillas(data || []));
+  }, [userId]);
+  
+  const aplicarPlantilla = async (p) => {
+    setForm(f => ({...f, concepto: p.concepto || "", centro: p.centro_id || f.centro}));
+    setDesglose((p.desglose && Array.isArray(p.desglose) && p.desglose.length > 0) 
+      ? p.desglose.map((d,i) => ({...d, id: Date.now()+i}))
+      : [{id:Date.now(), cuenta:"", monto:""}]);
+    // Incrementar contador de uso
+    if (window.sb) {
+      await window.sb.from("plantillas_anticipo")
+        .update({uso_count: (p.uso_count||0)+1}).eq("id", p.id);
+    }
+    setMostrarPlantillas(false);
+    showToast(`✓ Plantilla "${p.nombre}" aplicada`);
+  };
+  
+  const guardarComoPlantilla = async () => {
+    const nombre = prompt("Nombre para esta plantilla (ej: 'Viaje CDMX semanal'):");
+    if (!nombre || !nombre.trim()) return;
+    if (!window.sb) { showToast("Sin conexión"); return; }
+    const desgValidos = desglose.filter(d => d.cuenta && Number(d.monto) > 0);
+    const {error} = await window.sb.from("plantillas_anticipo").insert({
+      usuario_id: userId,
+      nombre: nombre.trim(),
+      concepto: form.concepto,
+      centro_id: form.centro,
+      desglose: desgValidos.map(d => ({cuenta: d.cuenta, monto: d.monto})),
+    });
+    if (error) { showToast("Error: " + error.message); return; }
+    // Recargar lista
+    const {data} = await window.sb.from("plantillas_anticipo")
+      .select("*").eq("usuario_id", userId).order("uso_count", {ascending:false});
+    setPlantillas(data || []);
+    showToast(`✓ Plantilla "${nombre.trim()}" guardada`);
+  };
+  
+  const eliminarPlantilla = async (p) => {
+    if (!confirm(`¿Eliminar plantilla "${p.nombre}"?`)) return;
+    if (!window.sb) return;
+    await window.sb.from("plantillas_anticipo").delete().eq("id", p.id);
+    setPlantillas(plantillas.filter(x => x.id !== p.id));
+    showToast("✓ Plantilla eliminada");
+  };
+
   const [desglose, setDesglose] = React.useState([
     { id: 1, nombre: "Pasajes (vuelo)", monto: 4800, cuenta: "6122900001" },
     { id: 2, nombre: "Hospedaje",       monto: 2400, cuenta: "6122900003" },
@@ -3309,9 +3375,43 @@ function SolicitarAnticipo({ setPage, userId }) {
         </div>
       </div>
 
+      {plantillas.length > 0 && (
+        <div className="card" style={{marginBottom:14, borderLeft:"3px solid var(--accent)"}}>
+          <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10}}>
+            <div>
+              <div style={{fontSize:13, fontWeight:600, color:"var(--text)"}}>📋 Plantillas guardadas</div>
+              <div style={{fontSize:11, color:"var(--text-3)", marginTop:2}}>Aplica una plantilla para llenar el formulario rápido</div>
+            </div>
+            <button className="btn sm ghost" onClick={()=>setMostrarPlantillas(s=>!s)}>
+              {mostrarPlantillas ? "Ocultar" : `Ver ${plantillas.length}`}
+            </button>
+          </div>
+          {mostrarPlantillas && (
+            <div style={{display:"flex", flexWrap:"wrap", gap:8}}>
+              {plantillas.map(p => (
+                <div key={p.id} style={{display:"flex", alignItems:"center", gap:4, background:"var(--surface-2)", border:"1px solid var(--border)", borderRadius:8, padding:"6px 4px 6px 12px"}}>
+                  <button onClick={()=>aplicarPlantilla(p)} style={{background:"none", border:"none", color:"var(--text)", fontSize:12, cursor:"pointer", fontWeight:500, padding:0}}>
+                    {p.nombre}
+                    {p.uso_count > 0 && <span style={{color:"var(--text-3)", fontWeight:400, marginLeft:6}}>· {p.uso_count}x</span>}
+                  </button>
+                  <button onClick={()=>eliminarPlantilla(p)} className="icon-btn" style={{padding:4}} title="Eliminar plantilla">
+                    <Icon name="x" size={10}/>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="two-col">
         <div className="card">
-          <h3 className="card-title" style={{marginBottom:18}}>Datos del anticipo</h3>
+          <div style={{display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:18}}>
+            <h3 className="card-title" style={{margin:0}}>Datos del anticipo</h3>
+            <button className="btn sm ghost" onClick={guardarComoPlantilla} title="Guardar este formulario como plantilla">
+              <Icon name="plus" size={11}/> Guardar como plantilla
+            </button>
+          </div>
           <div className="form-grid cols-2">
             <div className="field"><label>Concepto / motivo</label><input className="input" value={form.concepto} onChange={e => updField("concepto", e.target.value)}/></div>
             <div className="field"><label>Centro de beneficio</label><select className="select" value={form.centro} onChange={e => updField("centro", e.target.value)}>{window.CENTROS.map(c => <option key={c.id} value={c.id}>{c.id} · {c.nombre}</option>)}</select></div>
@@ -8206,9 +8306,79 @@ function M_Empty({ icon = "inbox", title, sub }) {
       </div>
       <div style={{fontWeight:600, fontSize:14, color:"var(--text)"}}>{title}</div>
       {sub && <div style={{marginTop:4, fontSize:12.5}}>{sub}</div>}
+          {actionLabel && onAction && (
+        <button className="btn primary" onClick={onAction} style={{marginTop:16, padding:"10px 20px", fontSize:13, fontWeight:600}}>
+          <Icon name="plus" size={13}/> {actionLabel}
+        </button>
+      )}
     </div>
   );
 }
+
+// ── EmptyState (web) ─────────────────────────────────────────────────────────
+function EmptyState({ icon = "inbox", title, sub, actionLabel, onAction, accent = false }) {
+  return (
+    <div style={{textAlign:"center", padding:"60px 24px", background:"var(--surface)", border:"1px dashed var(--border)", borderRadius:12, margin:"20px 0"}}>
+      <div style={{width:64, height:64, borderRadius:16, background: accent ? "var(--accent-soft)" : "var(--surface-2)", border:"1px solid var(--border)", margin:"0 auto 16px", display:"grid", placeItems:"center"}}>
+        <Icon name={icon} size={28} style={{color: accent ? "var(--accent)" : "var(--text-3)"}}/>
+      </div>
+      <div style={{fontWeight:600, fontSize:18, color:"var(--text)", marginBottom:6}}>{title}</div>
+      {sub && <div style={{fontSize:13, color:"var(--text-3)", maxWidth:400, margin:"0 auto 16px"}}>{sub}</div>}
+      {actionLabel && onAction && (
+        <button className="btn primary" onClick={onAction} style={{padding:"10px 24px", fontSize:14, fontWeight:600, marginTop:8}}>
+          <Icon name="plus" size={14}/> {actionLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Skeleton loaders ─────────────────────────────────────────────────────────
+function SkeletonRow({ cols = 5 }) {
+  return (
+    <tr>
+      {Array.from({length: cols}).map((_,i) => (
+        <td key={i} style={{padding:"12px 8px"}}>
+          <div className="skeleton" style={{height:14, borderRadius:4, width: `${60 + (i*7)%30}%`}}/>
+        </td>
+      ))}
+    </tr>
+  );
+}
+
+function SkeletonTable({ rows = 5, cols = 5 }) {
+  return (
+    <table className="t" style={{width:"100%"}}>
+      <tbody>
+        {Array.from({length: rows}).map((_,i) => <SkeletonRow key={i} cols={cols}/>)}
+      </tbody>
+    </table>
+  );
+}
+
+function SkeletonCard() {
+  return (
+    <div className="m-card" style={{margin:"0 0 10px"}}>
+      <div className="skeleton" style={{height:16, width:"70%", marginBottom:8, borderRadius:4}}/>
+      <div className="skeleton" style={{height:12, width:"50%", marginBottom:6, borderRadius:4}}/>
+      <div className="skeleton" style={{height:12, width:"40%", borderRadius:4}}/>
+    </div>
+  );
+}
+
+function SkeletonStats({ count = 3 }) {
+  return (
+    <div style={{display:"grid", gridTemplateColumns:`repeat(${count}, 1fr)`, gap:10, marginBottom:14}}>
+      {Array.from({length: count}).map((_,i) => (
+        <div key={i} className="m-card" style={{margin:0, padding:"10px 12px"}}>
+          <div className="skeleton" style={{height:10, width:"60%", marginBottom:6, borderRadius:3}}/>
+          <div className="skeleton" style={{height:18, width:"40%", borderRadius:4}}/>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 
 // ───────────────────────── Usuario ─────────────────────────
 
@@ -8323,7 +8493,7 @@ function MUserHome({ userId, push, setTab }) {
         </div>
       </div>
       <div style={{fontSize:11, textTransform:"uppercase", letterSpacing:"0.08em", color:"var(--text-3)", margin:"14px 4px 8px", fontWeight:600}}>Activas</div>
-      {activas.length === 0 && <M_Empty title="Sin solicitudes activas" sub="Toca un acceso rápido arriba para empezar"/>}
+      {activas.length === 0 && <M_Empty icon="receipt" title="Sin solicitudes activas" sub="Empieza solicitando un anticipo para tu próximo viaje" actionLabel="Solicitar anticipo" onAction={() => setTab("anticipo")}/>}
       {activas.slice(0,5).map(s => (
         <div key={s.id} className="m-card" style={{cursor:"pointer"}} onClick={() => push({name:"detalle", id:s.id})}>
           <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6, gap:8}}>
@@ -8543,7 +8713,10 @@ function MGerenteBandeja({ userId, push, showSnack }) {
           <div style={{fontFamily:"var(--f-display)", fontSize:15, fontWeight:600, marginTop:2}}>{window.fmtMXN(all.reduce((a,s)=>a+s.monto,0))}</div>
         </div>
       </div>
-      {all.length === 0 && <M_Empty icon="check" title="Bandeja al día" sub="No tienes solicitudes pendientes"/>}
+      {all.length === 0 && (window.DB_LOADED 
+          ? <M_Empty icon="check" title="✨ Bandeja al día" sub="No tienes solicitudes pendientes de autorizar — buen trabajo"/>
+          : (<><SkeletonStats count={2}/><SkeletonCard/><SkeletonCard/></>)
+        )}
       {all.map(s => {
         const u = window.findUser(s.usuario);
         const dias = Math.floor((window.HOY - s.fecha) / (1000*60*60*24));
@@ -8752,7 +8925,11 @@ function MTesoreriaLiberar({ push, showSnack }) {
         </div>
       </div>
       {items.length > 0 && <button className="btn primary" style={{width:"100%", justifyContent:"center", marginBottom:12}} onClick={generarLayoutSPEI}><Icon name="download" size={13}/> Generar layout SPEI ({items.length})</button>}
-      {items.length === 0 && <M_Empty icon="check" title="Todo liberado" sub="No hay solicitudes pendientes de dispersión"/>}
+      {items.length === 0 && (
+        window.DB_LOADED 
+          ? <M_Empty icon="check" title="✨ Todo liberado" sub="No hay solicitudes pendientes de dispersión SPEI"/>
+          : (<><SkeletonStats count={2}/><SkeletonCard/><SkeletonCard/><SkeletonCard/></>)
+      )}
       {items.map(s => {
         const u = window.findUser(s.usuario);
         return (
@@ -9268,6 +9445,46 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
     concepto: "", centro: window.CENTROS[0]?.id || "",
     salida: "", regreso: "", destino: "", notas: "",
   });
+
+  // ── Plantillas ────────────────────────────────────────────────────────────
+  const [plantillas, setPlantillas] = React.useState([]);
+  
+  React.useEffect(() => {
+    if (!window.sb || !userId) return;
+    window.sb.from("plantillas_anticipo")
+      .select("*").eq("usuario_id", userId).order("uso_count", {ascending:false}).limit(8)
+      .then(({data}) => setPlantillas(data || []));
+  }, [userId]);
+  
+  const aplicarPlantilla = async (p) => {
+    setForm(f => ({...f, concepto: p.concepto || "", centro: p.centro_id || f.centro}));
+    setLineas((p.desglose && Array.isArray(p.desglose) && p.desglose.length > 0) 
+      ? p.desglose.map((d,i) => ({...d, id: Date.now()+i}))
+      : [{id:Date.now(), cuenta:"", monto:""}]);
+    if (window.sb) {
+      await window.sb.from("plantillas_anticipo").update({uso_count: (p.uso_count||0)+1}).eq("id", p.id);
+    }
+    showSnack(`✓ "${p.nombre}" aplicada`);
+  };
+  
+  const guardarComoPlantilla = async () => {
+    const nombre = prompt("Nombre para esta plantilla (ej: 'Viaje CDMX'):");
+    if (!nombre || !nombre.trim()) return;
+    if (!window.sb) { showSnack("Sin conexión"); return; }
+    const desgValidos = lineas.filter(l => l.cuenta && Number(l.monto) > 0);
+    const {error} = await window.sb.from("plantillas_anticipo").insert({
+      usuario_id: userId,
+      nombre: nombre.trim(),
+      concepto: form.concepto,
+      centro_id: form.centro,
+      desglose: desgValidos.map(l => ({cuenta: l.cuenta, monto: l.monto})),
+    });
+    if (error) { showSnack("Error: " + error.message); return; }
+    const {data} = await window.sb.from("plantillas_anticipo").select("*").eq("usuario_id", userId).order("uso_count", {ascending:false}).limit(8);
+    setPlantillas(data || []);
+    showSnack(`✓ Plantilla guardada`);
+  };
+
   const [showDatos, setShowDatos] = React.useState(false);
   const [lineas, setLineas] = React.useState(_borrM?.desglose || [
     { id: 1, nombre: "Pasajes", monto: 0, cuenta: "6122900001" },
@@ -9341,6 +9558,18 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
           }}>Descartar</button>
         </div>
       )}
+      {plantillas.length > 0 && (
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:10, textTransform:"uppercase", letterSpacing:"0.08em", color:"var(--text-3)", fontWeight:600, marginBottom:6, padding:"0 4px"}}>📋 Plantillas frecuentes</div>
+          <div style={{display:"flex", gap:6, overflowX:"auto", padding:"2px 4px 6px", scrollbarWidth:"none", WebkitOverflowScrolling:"touch"}}>
+            {plantillas.map(p => (
+              <button key={p.id} onClick={()=>aplicarPlantilla(p)} style={{flexShrink:0, background:"var(--surface-2)", border:"1px solid var(--border)", borderRadius:14, padding:"6px 12px", fontSize:12, color:"var(--text)", cursor:"pointer", fontWeight:500, whiteSpace:"nowrap"}}>
+                {p.nombre}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="m-balance" style={{padding:18, marginBottom:14, background:"var(--accent-soft)", border:"2px solid var(--accent)"}}>
         <div className="m-balance-l" style={{color:"var(--accent)", fontWeight:700, fontSize:11, letterSpacing:"0.08em", textTransform:"uppercase"}}>Total a solicitar · suma automática</div>
         <div className="m-balance-v" style={{color:"var(--accent)", fontSize:34, fontWeight:800, fontVariantNumeric:"tabular-nums", margin:"4px 0"}}>{window.fmtMXN(total)}</div>
@@ -9393,6 +9622,7 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
 
       <div style={{marginTop:16}}>
         <button className="btn ghost" style={{width:"100%", justifyContent:"center"}} onClick={guardarBorrador}>Guardar borrador</button>
+        <button className="btn ghost" style={{width:"100%", justifyContent:"center"}} onClick={guardarComoPlantilla}>📋 Guardar como plantilla</button>
       </div>
     </div>
   );
