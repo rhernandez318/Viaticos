@@ -1314,6 +1314,9 @@ async function loadFromDB() {
       id: u.id, nombre: u.nombre, correo: u.correo, rol: u.rol,
       centro: u.centro_id, gerente: u.gerente_id, iniciales: u.iniciales,
       division: u.division, clabe: u.clabe, banco: u.banco,
+      suplente_id: u.suplente_id || null,
+      suplente_desde: u.suplente_desde || null,
+      suplente_hasta: u.suplente_hasta || null,
       password: null,  // ya no almacenamos pwd local
     }));
 
@@ -1407,6 +1410,8 @@ async function loadSolicitudes() {
         comprobantes:   s.comprobantes || 0,
         destino:        s.destino || null,
         notas:          s.notas || null,
+        esCierre:       !!(s.notas && s.notas.includes("CIERRE_DEPOSITO")),
+        anticipoRef:    s.anticipo_ref || null,
         // Items del desglose estimado
         items: (s.items || []).map(i => ({
           cuenta: i.cuenta, desc: i.descripcion, monto: parseFloat(i.monto) || 0,
@@ -2629,7 +2634,7 @@ function generarNotificaciones(role, userId) {
   }
 
   if (role === "gerente") {
-    const teamIds = window.USUARIOS.filter(u => u.gerente === userId && u.rol !== "gerente" && u.rol !== "admin").map(u => u.id);
+    const gerentesSupliendoMe = window.gerentesQueSupleyo ? window.gerentesQueSupleyo(userId) : []; const teamIds = window.USUARIOS.filter(u => (u.gerente === userId || gerentesSupliendoMe.includes(u.gerente)) && u.rol !== "gerente" && u.rol !== "admin").map(u => u.id);
 
     // ── 4. Solicitudes sin respuesta más de 48h ───────────────────────────
     todos.filter(s =>
@@ -2842,6 +2847,41 @@ function Topbar({ role, setRole, crumbs, onNew, isAdmin, userId, onOpenDetail })
   const [showNotifs, setShowNotifs] = React.useState(false);
   const [leidas,     setLeidas]     = React.useState(new Set());
   const [, forceNotif] = React.useReducer(x=>x+1,0);
+  
+  // ── Búsqueda global ─────────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = React.useState("");
+  const [showResults, setShowResults] = React.useState(false);
+  
+  const searchResults = React.useMemo(() => {
+    if (searchQuery.length < 2) return [];
+    const q = searchQuery.toLowerCase().trim();
+    const qNum = parseFloat(q.replace(/[,$]/g, ""));
+    return (window.SOLICITUDES || []).filter(s => {
+      const u = window.findUser(s.usuario);
+      const userName = (u?.nombre || "").toLowerCase();
+      const concepto = (s.concepto || "").toLowerCase();
+      const folio = (s.id || "").toLowerCase();
+      // Match by text fields
+      if (folio.includes(q) || userName.includes(q) || concepto.includes(q)) return true;
+      // Match by amount (if query is a number)
+      if (!isNaN(qNum) && Math.abs((s.monto || 0) - qNum) < 0.01) return true;
+      return false;
+    }).sort((a,b) => new Date(b.fecha) - new Date(a.fecha));
+  }, [searchQuery]);
+  
+  // Ctrl/Cmd+K keyboard shortcut
+  React.useEffect(() => {
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        document.querySelector(".search input")?.focus();
+      }
+      if (e.key === "Escape" && showResults) setShowResults(false);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [showResults]);
+
   React.useEffect(() => {
     const t = setInterval(forceNotif, 30000);
     return () => clearInterval(t);
@@ -2860,10 +2900,55 @@ function Topbar({ role, setRole, crumbs, onNew, isAdmin, userId, onOpenDetail })
         ))}
       </div>
       <div className="topbar-right">
-        <div className="search">
+        <div className="search" style={{position:"relative"}}>
           <Icon name="search" size={14} />
-          <input placeholder="Buscar folio, usuario, RFC…" />
+          <input 
+            placeholder="Buscar folio, usuario, concepto, monto…" 
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            onFocus={() => setShowResults(true)}
+            onBlur={() => setTimeout(() => setShowResults(false), 200)}
+            style={{width:280}}
+          />
+          {searchQuery && (
+            <button onClick={() => {setSearchQuery(""); setShowResults(false);}} className="icon-btn" style={{padding:4, marginRight:4}}>
+              <Icon name="x" size={11}/>
+            </button>
+          )}
           <span className="kbd">⌘K</span>
+          {showResults && searchQuery.length >= 2 && (
+            <div style={{position:"absolute", top:"100%", left:0, right:0, marginTop:6, background:"var(--surface)", border:"1px solid var(--border)", borderRadius:10, boxShadow:"0 8px 32px rgba(0,0,0,0.3)", maxHeight:420, overflow:"auto", zIndex:100}}>
+              {searchResults.length === 0 ? (
+                <div style={{padding:"24px 16px", textAlign:"center", color:"var(--text-3)", fontSize:13}}>
+                  Sin resultados para "<strong>{searchQuery}</strong>"
+                </div>
+              ) : (
+                <>
+                  <div style={{padding:"8px 12px", borderBottom:"1px solid var(--border)", fontSize:11, color:"var(--text-3)", textTransform:"uppercase", letterSpacing:"0.06em"}}>
+                    {searchResults.length} resultado{searchResults.length !== 1 ? "s" : ""}
+                  </div>
+                  {searchResults.slice(0, 20).map(s => {
+                    const u = window.findUser(s.usuario);
+                    const statusColors = {solicitado:"var(--warn)", autorizado:"var(--accent)", liberado:"var(--success)", comprobado:"var(--success)", rechazado:"var(--danger)"};
+                    return (
+                      <div key={s.id} onMouseDown={(e) => {e.preventDefault(); onOpenDetail(s.id); setSearchQuery(""); setShowResults(false);}}
+                           style={{padding:"10px 14px", borderBottom:"1px solid var(--border)", cursor:"pointer", display:"grid", gridTemplateColumns:"auto 1fr auto auto", gap:10, alignItems:"center"}}
+                           onMouseEnter={(e)=>e.currentTarget.style.background="var(--surface-2)"}
+                           onMouseLeave={(e)=>e.currentTarget.style.background="transparent"}>
+                        <span style={{fontSize:11, color:"var(--text-3)", fontFamily:"monospace"}}>{s.id}</span>
+                        <div style={{minWidth:0}}>
+                          <div style={{fontSize:13, fontWeight:500, color:"var(--text)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{s.concepto || "—"}</div>
+                          <div style={{fontSize:11, color:"var(--text-3)"}}>{u?.nombre || "—"}</div>
+                        </div>
+                        <div style={{fontSize:12, fontWeight:600, fontVariantNumeric:"tabular-nums"}}>{window.fmtMXN(s.monto)}</div>
+                        <span style={{fontSize:10, padding:"2px 8px", borderRadius:10, background:(statusColors[s.status]||"var(--text-3)") + "33", color:statusColors[s.status]||"var(--text-3)", fontWeight:600, textTransform:"uppercase", letterSpacing:"0.05em"}}>{s.status}</span>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+          )}
         </div>
         {isAdmin && (
           <div className="segmented" title="Ver como rol">
@@ -3315,7 +3400,7 @@ function SolicitarAnticipo({ setPage, userId }) {
     limpiarBorrador();
     window.insertBitacora && window.insertBitacora(id, "solicitado", userId, `Monto: ${window.fmtMXN(totalDesg)}`);
     // Notificar al gerente
-    const _gerenteId = window.findUser(userId)?.gerente;
+    const _gerenteId = window.aprobadorEfectivo(window.findUser(userId)?.gerente);
     if (_gerenteId) window.notifyUser && window.notifyUser(
       _gerenteId,
       "📋 Nueva solicitud pendiente",
@@ -3922,7 +4007,7 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
         setAnticipoSel(null);
         setItems([]);
         setEnviado(false);
-        const _gNC = window.findUser(userId)?.gerente;
+        const _gNC = window.aprobadorEfectivo(window.findUser(userId)?.gerente);
         if (_gNC) window.notifyUser && window.notifyUser(_gNC, "📋 Nueva comprobación pendiente",
           `${window.findUser(userId)?.nombre||"Un colaborador"} envió la comprobación ${id}`, "nueva-"+id);
         showToast("✓ Comprobación " + id + " enviada · Saldo restante: $" + nuevoSaldo.toFixed(2));
@@ -4262,7 +4347,7 @@ function NuevoReembolso({ setPage, userId }) {
       comprobantes:items.length, cfdi:items, saldoPendiente:0,
     };
     window.SOLICITUDES.unshift(nueva);
-    const _gNR = window.findUser(uid)?.gerente;
+    const _gNR = window.aprobadorEfectivo(window.findUser(uid)?.gerente);
     if (_gNR) window.notifyUser && window.notifyUser(_gNR, "📋 Nueva solicitud pendiente",
       `${window.findUser(uid)?.nombre||"Un colaborador"} envió un reembolso de ${window.fmtMXN(total)} — ${concepto}`, "nueva-"+id);
     setEnviado(true);
@@ -4579,6 +4664,17 @@ function CierreAnticipo({ setPage, userId, anticipoId }) {
       notas: `CIERRE_DEPOSITO · Ref: ${referencia.trim()}`,
       archivoUrl,
       esCierre: true,
+      comprobantes: archivoUrl ? 1 : 0,
+      // CFDI array para que la vista de detalle muestre el comprobante de depósito
+      cfdi: archivoUrl ? [{
+        uuid: "CIERRE-" + id,
+        emisor: u?.nombre || "Usuario",
+        concepto: `Depósito de reintegro · Ref: ${referencia.trim()} · ${fechaDeposito}`,
+        subtotal: saldo, iva: 0, total: saldo,
+        cuenta: "1110000001",
+        confianza: 1.0,
+        archivo_url: archivoUrl,
+      }] : [],
     });
 
     showToast("✓ Comprobante enviado. Pendiente de validación por tesorería");
@@ -4699,10 +4795,15 @@ function GerenteBandeja({ openDetail, userId, role }) {
   const gerenteId = userId || "U101";
   // Siempre filtrar por equipo directo (usuarios cuyo gerente === gerenteId)
   // Si es admin ve todo (teamIds = null), si es gerente solo ve su equipo
+  // Equipo propio + equipo de gerentes que yo suplo
+  const gerentesSupliendo = window.gerentesQueSupleyo ? window.gerentesQueSupleyo(gerenteId) : [];
   const teamIds = esAdmin
     ? null
     : window.USUARIOS
-        .filter(u => u.gerente === gerenteId && u.rol !== "gerente" && u.rol !== "admin")
+        .filter(u => 
+          (u.gerente === gerenteId || gerentesSupliendo.includes(u.gerente))
+          && u.rol !== "gerente" && u.rol !== "admin"
+        )
         .map(u => u.id);
 
   const [items, setItems] = React.useState(() =>
@@ -5546,7 +5647,10 @@ function AdminUsuarios({ role = "admin" } = {}) {
           const row = { nombre: toApply.nombre, rol: toApply.rol,
             centro_id: toApply.centro||null, gerente_id: toApply.gerente||null,
             division: toApply.division||"4105", clabe: toApply.clabe||null,
-            banco: toApply.banco||null, iniciales };
+            banco: toApply.banco||null, iniciales,
+            suplente_id: toApply.suplente_id || null,
+            suplente_desde: toApply.suplente_desde || null,
+            suplente_hasta: toApply.suplente_hasta || null };
           const { error } = await window.sb.from("usuarios").update(row).eq("id", editing.id);
           if (error) { showToastU("Error: " + error.message, false); return; }
           if (toApply.password && toApply.password.trim())
@@ -5689,6 +5793,16 @@ function AdminUsuarios({ role = "admin" } = {}) {
               placeholder:"Ej: 012180001234567439", hint:"Para dispersión SPEI — solo admin y tesorería"},
             {key:"banco", label:"Banco", value:editing.banco||"", full:true,
               placeholder:"Ej: BBVA México", hint:"Banco emisor de la CLABE"},
+            ...(editing.rol === "gerente" || editing.rol === "admin" ? [
+              {key:"suplente_id", label:"Suplente (delegación)", value:editing.suplente_id||"", type:"select", full:true,
+                options:[{value:"", label:"— sin suplente —"},
+                  ...users.filter(u=>(u.rol==="gerente"||u.rol==="admin")&&u.id!==editing.id).map(g=>({value:g.id,label:g.nombre+" ("+g.rol+")"}))],
+                hint:"Cuando este gerente está fuera, su suplente recibe sus solicitudes para autorizar"},
+              {key:"suplente_desde", label:"Suplencia desde", value:editing.suplente_desde||"", type:"date",
+                hint:"Vacío = inmediato"},
+              {key:"suplente_hasta", label:"Suplencia hasta", value:editing.suplente_hasta||"", type:"date",
+                hint:"Vacío = sin caducidad"},
+            ] : []),
           ]}
           onClose={() => setEditing(null)}
           onSave={save}
@@ -6898,8 +7012,52 @@ function ContadorPolizas() {
         });
 
       } else {
-        // ── Póliza de COMPROBACIÓN / REEMBOLSO: Gastos vs Proveedor 6000000 ─
+        // ── Póliza de COMPROBACIÓN / REEMBOLSO ─────────────────────────────
+        // Si es CIERRE (reintegro de saldo): Bancos vs Deudor
+        // Si tiene anticipoRef: Gastos vs Deudor (cancela el anticipo)
+        // Si es independiente: Gastos vs Proveedor Único 6000000
+        const esCierreSolicitud = !!s.esCierre || (s.concepto && s.concepto.includes("[CIERRE]"));
+        const divisionComp = u.division || "4105";
+        const cuentaBancoComp = window.getBancosAccount(divisionComp);
+        const cuentaBancoNombreComp = window.CATALOGO_GASTOS.find(cg => cg.cuenta === cuentaBancoComp)?.nombre || `Bancos ${divisionComp}`;
 
+        if (esCierreSolicitud) {
+          // ── CIERRE: Bancos (cargo) vs Deudor del usuario (abono) ─────────
+          // El usuario depositó dinero al banco para reintegrar el saldo del anticipo
+          const archivosCierre = (s.cfdi && s.cfdi.length > 0)
+            ? s.cfdi.map((cf,i) => ({
+                nombre: `${s.id}_deposito_${i+1}`,
+                url: cf.archivo_url || cf.archivo_pdf_url || null,
+                uuid: cf.uuid || null,
+                total: cf.total || s.monto,
+              }))
+            : [];
+          lineas.push({
+            poliza: polRef, folio: s.id, fecha: fechaFmt,
+            centro: centroId, area: c ? c.nombre : centroId,
+            division: divisionComp,
+            cuenta: cuentaBancoComp,
+            nombreCuenta: cuentaBancoNombreComp,
+            tipo: "C", debe: s.monto, haber: 0,
+            concepto: `Reintegro de saldo · ${u.nombre} · ${s.anticipoRef||""}`,
+            proveedor: u.nombre, usuario: u.nombre, ref: s.id,
+            _archivos: archivosCierre,
+          });
+          lineas.push({
+            poliza: polRef, folio: s.id, fecha: fechaFmt,
+            centro: centroId, area: c ? c.nombre : centroId,
+            division: divisionComp,
+            cuenta: u.id,
+            nombreCuenta: `Deudor ${u.nombre} (${u.id})`,
+            tipo: "A", debe: 0, haber: s.monto,
+            concepto: `Cancelación deudor por reintegro · ${s.anticipoRef||s.id}`,
+            proveedor: u.nombre, usuario: u.nombre, ref: s.id,
+            _archivos: archivosCierre,
+          });
+          numPoliza++;
+          return; // Saltar el flujo normal de comprobación
+        }
+        
         // Obtener desglose real o estimado
         const items = (() => {
           if (s.cfdi && s.cfdi.length > 0) {
@@ -6956,11 +7114,12 @@ function ContadorPolizas() {
                 uuid: cf.uuid || cf.uuidFull || null,
                 emisor: cf.emisor || null,
                 total: cf.total || 0,
+                url: cf.archivo_url || cf.archivo_pdf_url || cf.archivo_xml_url || null,
               }))
             : s.comprobantes > 0
               ? Array.from({length: s.comprobantes}, (_,i) => ({
                   nombre: `${s.id}_comprobante_${i+1}`,
-                  uuid: null, emisor: null, total: null,
+                  uuid: null, emisor: null, total: null, url: null,
                 }))
               : [],
         });
@@ -7676,6 +7835,7 @@ function DetalleModal({ id, onClose }) {
           </div>
           <div className="row">
             <TipoBadge tipo={s.tipo}/>
+            {s.esCierre && <span style={{padding:"4px 10px", borderRadius:14, fontSize:11, fontWeight:600, background:"var(--accent-soft)", color:"var(--accent)", border:"1px solid var(--accent)"}}>🏦 CIERRE</span>}
             <StatusBadge status={s.status}/>
             <div className="icon-btn" onClick={onClose}><Icon name="x" size={14}/></div>
           </div>
@@ -8116,7 +8276,7 @@ function MobileScan({ userId, onDone }) {
       status:"solicitado", comprobantes: facturasValidas.length, cfdi: facturasValidas,
       saldoPendiente: 0,
     });
-    const _gMS = window.findUser(userId)?.gerente;
+    const _gMS = window.aprobadorEfectivo(window.findUser(userId)?.gerente);
     if (_gMS) window.notifyUser && window.notifyUser(_gMS, "📋 Nueva solicitud pendiente",
       `${window.findUser(userId)?.nombre||"Un colaborador"} envió un reembolso de ${window.fmtMXN(total)}`, "nueva-"+id);
     showToast("✓ Reembolso " + id + " enviado");
@@ -8647,7 +8807,7 @@ function MGerenteBandeja({ userId, push, showSnack }) {
     if (!window.sb) return;
     let query = window.sb.from("solicitudes").select("*").eq("status","solicitado");
     if (!esAdmin) {
-      const teamIds = window.USUARIOS.filter(u => u.gerente === userId && u.rol !== "gerente" && u.rol !== "admin").map(u => u.id);
+      const gerentesSupliendoMe = window.gerentesQueSupleyo ? window.gerentesQueSupleyo(userId) : []; const teamIds = window.USUARIOS.filter(u => (u.gerente === userId || gerentesSupliendoMe.includes(u.gerente)) && u.rol !== "gerente" && u.rol !== "admin").map(u => u.id);
       if (!teamIds.length) return;
       query = query.in("usuario_id", teamIds);
     }
@@ -8665,7 +8825,7 @@ function MGerenteBandeja({ userId, push, showSnack }) {
         forceMGB();
       });
   }, [userId]);
-  const teamIds = window.USUARIOS.filter(u => u.gerente === userId && u.rol !== "gerente" && u.rol !== "admin").map(u => u.id);
+  const gerentesSupliendoMe = window.gerentesQueSupleyo ? window.gerentesQueSupleyo(userId) : []; const teamIds = window.USUARIOS.filter(u => (u.gerente === userId || gerentesSupliendoMe.includes(u.gerente)) && u.rol !== "gerente" && u.rol !== "admin").map(u => u.id);
   const all = window.SOLICITUDES.filter(s => s.status === "solicitado"
       && s.usuario !== userId                                       // excluir sus propias
       && (esAdmin || teamIds.includes(s.usuario)));
@@ -8775,7 +8935,7 @@ function MGerenteEquipo({ userId, push }) {
 }
 
 function MGerenteHistorial({ userId, push }) {
-  const teamIds = window.USUARIOS.filter(u => u.gerente === userId && u.rol !== "gerente" && u.rol !== "admin").map(u => u.id);
+  const gerentesSupliendoMe = window.gerentesQueSupleyo ? window.gerentesQueSupleyo(userId) : []; const teamIds = window.USUARIOS.filter(u => (u.gerente === userId || gerentesSupliendoMe.includes(u.gerente)) && u.rol !== "gerente" && u.rol !== "admin").map(u => u.id);
   const data = window.SOLICITUDES.filter(s => teamIds.includes(s.usuario) && s.status !== "solicitado");
   return (
     <div className="m-pad">
@@ -9533,7 +9693,7 @@ function MNuevoAnticipo({ userId, onDone, showSnack }) {
       items: lineas,
     });
     limpiarBorrM();
-    (() => { const _g = window.findUser(userId)?.gerente; if (_g) window.notifyUser && window.notifyUser(_g, "📋 Nueva solicitud pendiente", `${window.findUser(userId)?.nombre||"Un colaborador"} solicita un anticipo — ${form.concepto}`, "nueva-"+id); })();
+    (() => { const _g = window.aprobadorEfectivo(window.findUser(userId)?.gerente); if (_g) window.notifyUser && window.notifyUser(_g, "📋 Nueva solicitud pendiente", `${window.findUser(userId)?.nombre||"Un colaborador"} solicita un anticipo — ${form.concepto}`, "nueva-"+id); })();
     showSnack(`✓ ${id} enviado a tu gerente`);
     setTimeout(onDone, 1000);
   };
@@ -9778,7 +9938,7 @@ function MNuevaComprobacion({ userId, onDone, showSnack }) {
       ant.comprobantes = (ant.comprobantes || 0) + facturas.length;
       ant.status = nuevoStatusAnt;
     }
-    (() => { const _g = window.findUser(userId)?.gerente; if (_g) window.notifyUser && window.notifyUser(_g, "📋 Nueva comprobación pendiente", `${window.findUser(userId)?.nombre||"Un colaborador"} envió la comprobación ${id}`, "nueva-"+id); })();
+    (() => { const _g = window.aprobadorEfectivo(window.findUser(userId)?.gerente); if (_g) window.notifyUser && window.notifyUser(_g, "📋 Nueva comprobación pendiente", `${window.findUser(userId)?.nombre||"Un colaborador"} envió la comprobación ${id}`, "nueva-"+id); })();
     showSnack(`✓ Comprobación ${id} enviada`);
     setTimeout(onDone, 1100);
   };
@@ -10371,10 +10531,87 @@ const M_TABS = {
   ],
 };
 
+function MSearch({ open, onClose, onOpenDetail }) {
+  const [q, setQ] = React.useState("");
+  const inputRef = React.useRef(null);
+  
+  React.useEffect(() => {
+    if (open && inputRef.current) setTimeout(() => inputRef.current.focus(), 50);
+    if (!open) setQ("");
+  }, [open]);
+  
+  const results = React.useMemo(() => {
+    if (q.length < 2) return [];
+    const query = q.toLowerCase().trim();
+    const qNum = parseFloat(query.replace(/[,$]/g, ""));
+    return (window.SOLICITUDES || []).filter(s => {
+      const u = window.findUser(s.usuario);
+      const userName = (u?.nombre || "").toLowerCase();
+      const concepto = (s.concepto || "").toLowerCase();
+      const folio = (s.id || "").toLowerCase();
+      if (folio.includes(query) || userName.includes(query) || concepto.includes(query)) return true;
+      if (!isNaN(qNum) && Math.abs((s.monto || 0) - qNum) < 0.01) return true;
+      return false;
+    }).sort((a,b) => new Date(b.fecha) - new Date(a.fecha)).slice(0, 30);
+  }, [q]);
+  
+  if (!open) return null;
+  return (
+    <div style={{position:"fixed", inset:0, zIndex:200, background:"var(--bg)"}}>
+      <div style={{display:"flex", alignItems:"center", gap:8, padding:"12px 16px 8px", borderBottom:"1px solid var(--border)", position:"sticky", top:0, background:"var(--bg)", zIndex:1}}>
+        <div onClick={onClose} style={{width:34, height:34, borderRadius:"50%", background:"var(--surface)", border:"1px solid var(--border)", display:"grid", placeItems:"center", cursor:"pointer", flexShrink:0}}>
+          <Icon name="chevR" size={14} style={{transform:"rotate(180deg)"}}/>
+        </div>
+        <div style={{flex:1, position:"relative"}}>
+          <Icon name="search" size={14} style={{position:"absolute", left:10, top:"50%", transform:"translateY(-50%)", color:"var(--text-3)"}}/>
+          <input 
+            ref={inputRef}
+            placeholder="Buscar folio, usuario, concepto, monto…"
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            style={{width:"100%", padding:"10px 12px 10px 32px", background:"var(--surface)", border:"1px solid var(--border)", borderRadius:10, fontSize:14, color:"var(--text)"}}
+          />
+        </div>
+      </div>
+      <div style={{overflowY:"auto", padding:"8px 0", maxHeight:"calc(100vh - 80px)"}}>
+        {q.length < 2 && (
+          <div style={{padding:"40px 20px", textAlign:"center", color:"var(--text-3)", fontSize:13}}>
+            Escribe al menos 2 caracteres para buscar
+          </div>
+        )}
+        {q.length >= 2 && results.length === 0 && (
+          <div style={{padding:"40px 20px", textAlign:"center", color:"var(--text-3)", fontSize:13}}>
+            Sin resultados para "<strong>{q}</strong>"
+          </div>
+        )}
+        {results.map(s => {
+          const u = window.findUser(s.usuario);
+          const statusColors = {solicitado:"var(--warn)", autorizado:"var(--accent)", liberado:"var(--success)", comprobado:"var(--success)", rechazado:"var(--danger)"};
+          return (
+            <div key={s.id} onClick={() => {onOpenDetail(s.id); onClose();}}
+                 style={{padding:"12px 16px", borderBottom:"1px solid var(--border)", cursor:"pointer"}}>
+              <div style={{display:"flex", justifyContent:"space-between", alignItems:"baseline", marginBottom:4}}>
+                <span style={{fontSize:11, fontFamily:"monospace", color:"var(--text-3)"}}>{s.id}</span>
+                <span style={{fontSize:10, padding:"2px 8px", borderRadius:10, background:(statusColors[s.status]||"var(--text-3)") + "22", color:statusColors[s.status]||"var(--text-3)", textTransform:"uppercase", fontWeight:600}}>{s.status}</span>
+              </div>
+              <div style={{fontSize:14, fontWeight:500, marginBottom:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>{s.concepto||"—"}</div>
+              <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+                <span style={{fontSize:11.5, color:"var(--text-3)"}}>{u?.nombre || "—"}</span>
+                <span style={{fontSize:13, fontWeight:600, fontVariantNumeric:"tabular-nums"}}>{window.fmtMXN(s.monto)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function MobileApp({ userId, role, onLogout, setPage, openDetail }) {
   const [tab, setTab] = React.useState("home");
   const [stack, setStack] = React.useState([]);
   const [snack, setSnack] = React.useState(null);
+  const [searchOpen, setSearchOpen] = React.useState(false);
 
   const push = (s) => setStack(prev => [...prev, s]);
   const pop = () => setStack(prev => prev.slice(0, -1));
@@ -10468,11 +10705,16 @@ function MobileApp({ userId, role, onLogout, setPage, openDetail }) {
         <div className="phone-notch"></div>
         <M_Status/>
         <div className="phone-screen">
-          {(headerTitle || headerBack) && <M_Header title={headerTitle} sub={headerSub} onBack={headerBack}/>}
+          {(headerTitle || headerBack) && <M_Header title={headerTitle} sub={headerSub} onBack={headerBack} right={
+            <div onClick={() => setSearchOpen(true)} style={{width:34, height:34, borderRadius:"50%", background:"var(--surface)", border:"1px solid var(--border)", display:"grid", placeItems:"center", cursor:"pointer", flexShrink:0}}>
+              <Icon name="search" size={14}/>
+            </div>
+          }/>}
           <div style={{flex:1, overflowY:"auto"}}>
             {body}
           </div>
           <M_Snack msg={snack}/>
+          <MSearch open={searchOpen} onClose={() => setSearchOpen(false)} onOpenDetail={(id) => push({name:"detalle", id})}/>
         </div>
         {!current && <M_Tabs items={tabs} current={tab} onChange={setTab}/>}
       </div>
@@ -11802,6 +12044,35 @@ function CambiarPasswordModal({ onClose }) {
 }
 
 // ── Main App ─────────────────────────────────────────────────────────────────
+
+// ── Delegación helpers ────────────────────────────────────────────────────────
+window.suplenciaActiva = function(u, ref = new Date()) {
+  if (!u || !u.suplente_id) return false;
+  const desde = u.suplente_desde ? new Date(u.suplente_desde) : null;
+  const hasta = u.suplente_hasta ? new Date(u.suplente_hasta) : null;
+  if (desde && ref < desde) return false;
+  if (hasta && ref > hasta) return false;
+  return true;
+};
+
+// "¿Soy suplente de algún gerente activo?" → devuelve lista de ids de gerentes
+window.aprobadorEfectivo = function(gerenteId, ref = new Date()) {
+  if (!gerenteId || !window.USUARIOS) return gerenteId;
+  const gerente = window.USUARIOS.find(u => u.id === gerenteId);
+  if (!gerente || !gerente.suplente_id) return gerenteId;
+  if (window.suplenciaActiva && window.suplenciaActiva(gerente, ref)) {
+    return gerente.suplente_id;
+  }
+  return gerenteId;
+};
+
+window.gerentesQueSupleyo = function(userId, ref = new Date()) {
+  if (!userId || !window.USUARIOS) return [];
+  return window.USUARIOS.filter(u => 
+    u.suplente_id === userId && window.suplenciaActiva(u, ref)
+  ).map(u => u.id);
+};
+
 function App() {
   const [t, setTweak]       = window.useTweaks(TWEAK_DEFAULTS);
   const [detailId, setDetailId] = React.useState(null);
