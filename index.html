@@ -7082,7 +7082,6 @@ function ContadorPolizas() {
         const totalMov = items.reduce((a,i) => a+i.monto, 0);
 
         // Cargos: una línea por tipo de gasto
-        const divisionComp = u.division || "4105";
         items.forEach(it => {
           if (it.monto <= 0) return;
           const meta = window.findCuenta(it.cuenta) || { nombre: it.cuenta };
