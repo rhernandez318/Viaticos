@@ -2560,12 +2560,13 @@ const NAV = {
     { id: "ajustes",   label: "Ajustes y Reglas",   icon: "settings" },
   ],
   contador: [
-    { id: "polizas",   label: "Pólizas contables",  icon: "book" },
-    { id: "validacion-sat", label: "Validación SAT", icon: "lock" },
-    { id: "conciliacion-sat", label: "Conciliación SAT", icon: "check" },
-    { id: "reportes",  label: "Reportes",            icon: "chart" },
-    { id: "catalogo",  label: "Catálogo de gastos", icon: "book" },
-    { id: "perfil",    label: "Mi perfil",           icon: "settings" },
+    { id: "polizas",          label: "Pólizas contables",  icon: "book" },
+    { id: "trazabilidad",     label: "Trazabilidad",       icon: "search" },
+    { id: "validacion-sat",   label: "Validación SAT",     icon: "lock" },
+    { id: "conciliacion-sat", label: "Conciliación SAT",   icon: "check" },
+    { id: "reportes",         label: "Reportes",           icon: "chart" },
+    { id: "catalogo",         label: "Catálogo de gastos", icon: "book" },
+    { id: "perfil",           label: "Mi perfil",          icon: "settings" },
   ],
 };
 
@@ -8232,6 +8233,74 @@ function TrazabilidadPoliza() {
               </div>
             )}
 
+            {/* Asiento contable generado (póliza SAP) */}
+            {(() => {
+              // Generar el asiento usando la misma lógica de ContadorPolizas
+              let lineas = [];
+              try {
+                const gp = window.generarPolizasSol ? window.generarPolizasSol([sol]) : null;
+                if (gp && gp.length) lineas = gp;
+              } catch(_) {}
+              if (!lineas.length) {
+                // Fallback: construir asiento desde datos del documento
+                const div = (window.findUser(sol.usuario)||{}).division || "4105";
+                const banco = window.getBancosAccount ? window.getBancosAccount(div) : "1110000001";
+                const cuentaBancoNombre = (window.CATALOGO_GASTOS||[]).find(cg=>cg.cuenta===banco)?.nombre || "Bancos";
+                if (sol.tipo === "anticipo" && ["liberado","comprobado","parcial"].includes(sol.status)) {
+                  lineas = [
+                    { cuenta: sol.usuario, nombreCuenta:`Deudor ${(window.findUser(sol.usuario)||{}).nombre||""}`, tipo:"C", debe:sol.monto, haber:0, concepto:sol.concepto },
+                    { cuenta: banco, nombreCuenta: cuentaBancoNombre, tipo:"A", debe:0, haber:sol.monto, concepto:"Dispersión SPEI · "+sol.id },
+                  ];
+                } else if (sol.tipo === "reembolso" && ["liberado","comprobado"].includes(sol.status)) {
+                  (sol.cfdi||[]).forEach(cf => {
+                    const cta = (window.CATALOGO_GASTOS||[]).find(c=>c.cuenta===cf.cuenta);
+                    lineas.push({ cuenta:cf.cuenta, nombreCuenta:cta?.nombre||cf.cuenta, tipo:"C", debe:cf.total, haber:0, concepto:cf.emisor||cf.concepto });
+                  });
+                  lineas.push({ cuenta:"6000000", nombreCuenta:"Proveedor único", tipo:"A", debe:0, haber:sol.monto, concepto:"Reembolso · "+sol.id });
+                }
+              }
+              if (!lineas.length) return null;
+              const totalDebe  = lineas.reduce((a,l)=>a+(l.debe||0),0);
+              const totalHaber = lineas.reduce((a,l)=>a+(l.haber||0),0);
+              return (
+                <div className="card">
+                  <div className="row" style={{justifyContent:"space-between", marginBottom:12}}>
+                    <div className="card-title">Asiento contable</div>
+                    <span style={{fontSize:11, color: Math.abs(totalDebe-totalHaber)<0.01 ? "var(--success)" : "var(--danger)", fontWeight:600}}>
+                      {Math.abs(totalDebe-totalHaber)<0.01 ? "✓ Cuadrado" : "⚠ Descuadrado"}
+                    </span>
+                  </div>
+                  <table className="t" style={{width:"100%"}}>
+                    <thead>
+                      <tr>
+                        <th>Cta.</th><th>Descripción</th><th>T/D</th>
+                        <th style={{textAlign:"right"}}>Debe</th>
+                        <th style={{textAlign:"right"}}>Haber</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lineas.map((l,i) => (
+                        <tr key={i} style={{background: l.tipo==="C" ? "rgba(100,200,100,.04)" : "rgba(100,150,255,.04)"}}>
+                          <td className="mono" style={{fontSize:11}}>{l.cuenta}</td>
+                          <td style={{fontSize:12}}>{l.nombreCuenta}</td>
+                          <td style={{fontSize:11, fontWeight:600, color: l.tipo==="C"?"var(--success)":"var(--accent)"}}>{l.tipo==="C"?"Cargo":"Abono"}</td>
+                          <td className="num">{l.debe>0?window.fmtMXN(l.debe):"—"}</td>
+                          <td className="num">{l.haber>0?window.fmtMXN(l.haber):"—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{fontWeight:700, borderTop:"2px solid var(--border)"}}>
+                        <td colSpan={3} style={{fontSize:12, textAlign:"right", paddingRight:12}}>Total</td>
+                        <td className="num">{window.fmtMXN(totalDebe)}</td>
+                        <td className="num">{window.fmtMXN(totalHaber)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              );
+            })()}
+
             {/* Comprobaciones ligadas (si es anticipo) */}
             {comprobacionesLigadas.length > 0 && (
               <div className="card">
@@ -8240,7 +8309,25 @@ function TrazabilidadPoliza() {
                   <thead><tr><th>Folio</th><th>Concepto</th><th>Estado</th><th style={{textAlign:"right"}}>Monto</th></tr></thead>
                   <tbody>
                     {comprobacionesLigadas.map((cm,i) => (
-                      <tr key={i} style={{cursor:"pointer"}} onClick={()=>{setFolio(cm.id); setTimeout(buscar,50);}}>
+                      <tr key={i} style={{cursor:"pointer"}} onClick={()=>{ setFolio(cm.id); setBuscando(true); setResultado(null); setError(null);
+                      // Buscar directamente con el nuevo folio (evita stale closure)
+                      (async () => {
+                        const f = cm.id.trim().toUpperCase();
+                        const solLocal = window.SOLICITUDES.find(s => (s.id||"").toUpperCase() === f);
+                        let solDB = solLocal;
+                        if (!solDB && window.sb) {
+                          const { data } = await window.sb.from("solicitudes").select("*, cfdi:comprobantes_cfdi(*)").eq("id", f).maybeSingle();
+                          if (data) solDB = { id:data.id, tipo:data.tipo, concepto:data.concepto, usuario:data.usuario_id, monto:parseFloat(data.monto)||0, fecha:new Date(data.fecha), status:data.status, anticipoRef:data.anticipo_ref, motivoRechazo:data.motivo_rechazo, cfdi:(data.cfdi||[]).map(c=>({uuid:c.uuid,emisor:c.emisor,concepto:c.concepto,total:parseFloat(c.total)||0,cuenta:c.cuenta,archivo_url:c.archivo_url,rfcEmisor:c.rfc_emisor,satEstado:c.sat_estado})) };
+                        }
+                        if (!solDB) { setError(`No encontrado: ${f}`); setBuscando(false); return; }
+                        let bita = [];
+                        if (window.sb) { const { data } = await window.sb.from("bitacora").select("*").eq("solicitud_id", f).order("ts",{ascending:true}); bita = data||[]; }
+                        const ap = solDB.anticipoRef ? (window.SOLICITUDES.find(s=>s.id===solDB.anticipoRef)||null) : null;
+                        const comps = solDB.tipo==="anticipo" ? window.SOLICITUDES.filter(s=>s.anticipoRef===solDB.id) : [];
+                        setResultado({ sol:solDB, bitacora:bita, anticipoPadre:ap, comprobacionesLigadas:comps });
+                        setBuscando(false);
+                      })();
+                    }}>
                         <td className="mono" style={{fontSize:12, color:"var(--accent)"}}>{cm.id}</td>
                         <td style={{fontSize:12}}>{cm.concepto}</td>
                         <td><StatusBadge status={cm.status}/></td>
@@ -11708,7 +11795,7 @@ const VALID_PAGES = {
   gerente:  ["bandeja","equipo","historial","reportes","perfil","mis-solicitudes","anticipos","reembolsos","nuevo-reembolso","cerrar-anticipo","comprobaciones","metricas"],
   tesoreria:["liberacion","pagados","deudores","reportes","usuarios","perfil"],
   admin:    ["usuarios","centros","catalogo","reportes","ajustes","perfil","liberacion","pagados","deudores","polizas","bandeja","equipo","historial","dash","anticipos","comprobaciones","reembolsos","nuevo-reembolso","cerrar-anticipo","mis-solicitudes","metricas","ajustes-sistema"],
-  contador: ["polizas","validacion-sat","conciliacion-sat","reportes","catalogo","perfil"],
+  contador: ["polizas","trazabilidad","validacion-sat","conciliacion-sat","reportes","catalogo","perfil"],
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -12268,11 +12355,12 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
     return <AdminUsuarios/>;
   }
   if (role === "contador") {
-    if (page === "polizas")   return <ContadorPolizas/>;
+    if (page === "polizas")          return <ContadorPolizas/>;
     if (page === "validacion-sat")   return <ValidacionSAT/>;
     if (page === "conciliacion-sat") return <ConciliacionSAT/>;
-    if (page === "reportes")  return <Reportes role={role} userId={userId}/>;
-    if (page === "catalogo")  return <AdminCatalogo/>;
+    if (page === "trazabilidad")     return <TrazabilidadPoliza/>;
+    if (page === "reportes")         return <Reportes role={role} userId={userId}/>;
+    if (page === "catalogo")         return <AdminCatalogo/>;
     return <ContadorPolizas/>;
   }
 
