@@ -49,7 +49,7 @@ self.addEventListener('notificationclick', event => {
 // ═══════════════════════════════════════════════════════════════════════════
 // CACHÉ (network-first HTML, cache-first librerías)
 // ═══════════════════════════════════════════════════════════════════════════
-const VERSION = "v2026.06.01-5";
+const VERSION = "v2026.06.01-6";
 const CACHE_NAME = "viaticos-" + VERSION;
 const PRECACHE = [
   "./", "./index.html", "./manifest.json",

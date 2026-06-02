@@ -3876,15 +3876,16 @@ function CompUploader({ onAdd, solicitudId, onOcrUpdate }) {
 
       const tfd = qn(doc, "TimbreFiscalDigital");
       let uuid = attr(tfd, "UUID", "uuid") || "";
-      const uuidDisplay = uuid ? uuid.toUpperCase().slice(0, 18) + "…" : "Sin UUID";
+      uuid = uuid.toUpperCase().trim();  // siempre normalizado a mayúsculas, sin espacios
 
       // Clasificar usando emisor + conceptos + claves SAT + RFC
       const matchText = (emisor + " " + conceptoStr + " " + claveProdServ + " " + rfc).toLowerCase();
       const [cuenta, conf] = guessCuenta(matchText);
 
       return {
-        uuid: uuidDisplay,
-        uuidFull: uuid.toUpperCase() || "",
+        uuid: uuid,           // UUID completo (36 chars normalizados)
+        uuidFull: uuid,       // alias mantenido por compatibilidad
+        uuidDisplay: uuid ? uuid.slice(0,18) + "…" : "Sin UUID",  // solo para mostrar
         emisor: emisor || rfc || "Emisor desconocido",
         rfcEmisor: rfc,
         rfcReceptor: rfcReceptor,
@@ -8031,12 +8032,17 @@ function ValidacionSAT() {
       )}
 
       {resultados && (
-        <div className="card" style={{padding:0, overflow:"hidden"}}>
-          <table className="t" style={{width:"100%"}}>
+        <div className="card" style={{padding:0, overflow:"auto"}}>
+          <table className="t" style={{width:"100%", tableLayout:"auto", fontSize:12}}>
             <thead>
               <tr>
-                <th>Folio</th><th>Emisor</th><th>UUID</th><th className="num">Total</th>
-                <th>Estado</th><th>Método</th><th title="Verificar en el portal del SAT">SAT.gob</th>
+                <th style={{whiteSpace:"nowrap"}}>Folio</th>
+                <th>Emisor</th>
+                <th style={{minWidth:295}}>UUID</th>
+                <th className="num" style={{whiteSpace:"nowrap"}}>Total</th>
+                <th style={{whiteSpace:"nowrap"}}>Estado</th>
+                <th style={{whiteSpace:"nowrap"}}>Método</th>
+                <th title="Verificar en el portal del SAT" style={{whiteSpace:"nowrap"}}>SAT.gob</th>
               </tr>
             </thead>
             <tbody>
@@ -8047,7 +8053,22 @@ function ValidacionSAT() {
                 <tr key={i} style={r.estado==="Cancelado"?{background:"rgba(226,75,74,.06)"}:{}}>
                   <td className="id-cell">{r.folio||"—"}</td>
                   <td style={{fontSize:12}}>{r.emisor||"—"}</td>
-                  <td className="id-cell" style={{fontSize:11}}>{r.uuid.slice(0,18)}…</td>
+                  <td style={{fontSize:10.5, fontFamily:"monospace", maxWidth:280, wordBreak:"break-all"}}>
+                    <span 
+                      onClick={(e) => {
+                        navigator.clipboard.writeText(r.uuid);
+                        const el = e.currentTarget;
+                        const orig = el.style.background;
+                        el.style.background = "var(--success-soft)";
+                        el.style.color = "var(--success)";
+                        setTimeout(() => { el.style.background = orig; el.style.color = ""; }, 700);
+                      }}
+                      style={{cursor:"pointer", padding:"2px 6px", borderRadius:4, transition:"all .2s", display:"inline-block"}}
+                      title="Clic para copiar UUID al portapapeles"
+                    >
+                      {r.uuid || "—"}
+                    </span>
+                  </td>
                   <td className="num">{window.fmtMXN(r.total||0)}</td>
                   <td>
                     <span style={{padding:"3px 10px", borderRadius:12, fontSize:11, fontWeight:600,
