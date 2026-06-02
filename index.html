@@ -7871,18 +7871,44 @@ function ValidacionSAT() {
   const [resultados, setResultados] = React.useState(null);
 
   // Reúne CFDIs del mes seleccionado desde las solicitudes
+  // Regex de UUID válido: 36 chars, formato 8-4-4-4-12
+  const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+  
+  // Estadísticas de qué se filtra y por qué
+  const stats = React.useMemo(() => {
+    let xmlValidos = 0, pdfsOImagenes = 0, uuidTruncados = 0, cierres = 0, sinMes = 0;
+    (window.SOLICITUDES || []).forEach(s => {
+      (s.cfdi || []).forEach(cf => {
+        const uuid = (cf.uuidFull || cf.uuid || "").trim();
+        const fechaSol = s.fecha instanceof Date ? s.fecha : new Date(s.fecha);
+        const mesSol = fechaSol.toISOString().slice(0,7);
+        if (mesSol !== mes) { sinMes++; return; }
+        if (!uuid) { pdfsOImagenes++; return; }
+        if (uuid.startsWith("CIERRE")) { cierres++; return; }
+        if (uuid.endsWith("…") || uuid.endsWith("...")) { uuidTruncados++; return; }
+        if (uuidRegex.test(uuid)) xmlValidos++;
+        else pdfsOImagenes++;
+      });
+    });
+    return { xmlValidos, pdfsOImagenes, uuidTruncados, cierres, sinMes };
+  }, [mes]);
+
   const cfdisDelMes = React.useMemo(() => {
     const lista = [];
     (window.SOLICITUDES || []).forEach(s => {
       (s.cfdi || []).forEach(cf => {
-        const uuid = cf.uuidFull || cf.uuid;
-        if (!uuid || uuid.startsWith("CIERRE")) return;
+        const uuid = (cf.uuidFull || cf.uuid || "").trim();
+        // Filtros: solo CFDIs XML reales con UUID válido y completo
+        if (!uuid) return;                                  // PDFs, imágenes sin XML
+        if (uuid.startsWith("CIERRE")) return;              // depósitos de cierre
+        if (uuid.endsWith("…") || uuid.endsWith("...")) return;  // legados truncados
+        if (!uuidRegex.test(uuid)) return;                  // formato inválido
         const fechaSol = s.fecha instanceof Date ? s.fecha : new Date(s.fecha);
         const mesSol = fechaSol.toISOString().slice(0,7);
         if (mesSol !== mes) return;
         lista.push({
           uuid,
-          rfcEmisor: cf.rfcEmisor || cf.rfc_emisor || "",
+          rfcEmisor:   cf.rfcEmisor   || cf.rfc_emisor   || "",
           rfcReceptor: cf.rfcReceptor || cf.rfc_receptor || window.RFC_EMPRESA || "",
           total: cf.total || 0,
           emisor: cf.emisor || "",
@@ -7978,6 +8004,18 @@ function ValidacionSAT() {
         </div>
       </div>
 
+      {(stats.pdfsOImagenes > 0 || stats.uuidTruncados > 0) && (
+        <div style={{padding:"12px 16px", background:"var(--surface-2)", border:"1px solid var(--border)", borderRadius:8, marginBottom:16, fontSize:12.5}}>
+          <div style={{fontWeight:600, marginBottom:6}}>📋 Resumen del mes {mes}</div>
+          <div style={{color:"var(--text-2)", lineHeight:1.6}}>
+            <div>✓ <strong>{stats.xmlValidos}</strong> CFDIs XML con UUID válido — sí se validan</div>
+            {stats.pdfsOImagenes > 0 && <div>📎 <strong>{stats.pdfsOImagenes}</strong> PDFs/imágenes (sin XML) — no aplican validación SAT</div>}
+            {stats.uuidTruncados > 0 && <div style={{color:"var(--warn)"}}>⚠ <strong>{stats.uuidTruncados}</strong> CFDIs con UUID truncado en BD (legado) — sube el XML de nuevo para validarlos</div>}
+            {stats.cierres > 0 && <div style={{color:"var(--text-3)"}}>🏦 <strong>{stats.cierres}</strong> depósitos de cierre — no son CFDIs</div>}
+          </div>
+        </div>
+      )}
+
       <div className="card" style={{marginBottom:16}}>
         <div className="row" style={{gap:12, alignItems:"flex-end", flexWrap:"wrap"}}>
           <div className="field" style={{margin:0}}>
@@ -8056,6 +8094,11 @@ function ValidacionSAT() {
                   <td style={{fontSize:10.5, fontFamily:"monospace", maxWidth:280, wordBreak:"break-all"}}>
                     <span 
                       onClick={(e) => {
+                        const isTruncado = r.uuid && (r.uuid.endsWith("…") || r.uuid.endsWith("..."));
+                        if (isTruncado) {
+                          alert("Este UUID está guardado de forma truncada en la BD (registro legado). Para validarlo correctamente, sube el XML original de nuevo.");
+                          return;
+                        }
                         navigator.clipboard.writeText(r.uuid);
                         const el = e.currentTarget;
                         const orig = el.style.background;
@@ -8064,7 +8107,7 @@ function ValidacionSAT() {
                         setTimeout(() => { el.style.background = orig; el.style.color = ""; }, 700);
                       }}
                       style={{cursor:"pointer", padding:"2px 6px", borderRadius:4, transition:"all .2s", display:"inline-block"}}
-                      title="Clic para copiar UUID al portapapeles"
+                      title={r.uuid && (r.uuid.endsWith("…") || r.uuid.endsWith("...")) ? "⚠ UUID truncado en BD — sube el XML de nuevo" : "Clic para copiar UUID al portapapeles"}
                     >
                       {r.uuid || "—"}
                     </span>
