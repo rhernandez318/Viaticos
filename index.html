@@ -3889,7 +3889,6 @@ function CompUploader({ onAdd, solicitudId, onOcrUpdate }) {
         emisor: emisor || rfc || "Emisor desconocido",
         rfcEmisor: rfc,
         rfcReceptor: rfcReceptor,
-        sello: selloEmisor ? selloEmisor.slice(-8) : null, // últimos 8 chars del sello (parámetro 'fe' del SAT)
         concepto: conceptoStr,
         subtotal: Math.round(subtotal * 100) / 100,
         iva: Math.round(iva * 100) / 100,
