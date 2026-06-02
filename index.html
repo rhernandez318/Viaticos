@@ -3888,6 +3888,7 @@ function CompUploader({ onAdd, solicitudId, onOcrUpdate }) {
         emisor: emisor || rfc || "Emisor desconocido",
         rfcEmisor: rfc,
         rfcReceptor: rfcReceptor,
+        sello: selloEmisor ? selloEmisor.slice(-8) : null, // últimos 8 chars del sello (parámetro 'fe' del SAT)
         concepto: conceptoStr,
         subtotal: Math.round(subtotal * 100) / 100,
         iva: Math.round(iva * 100) / 100,
@@ -7931,7 +7932,8 @@ function ValidacionSAT() {
       vigentes:   resultados.filter(r => r.estado === "Vigente").length,
       cancelados: resultados.filter(r => r.estado === "Cancelado").length,
       noEncontrados: resultados.filter(r => r.estado === "No Encontrado").length,
-      errores:    resultados.filter(r => r.estado === "ERROR" || r.estado === "ERROR_RED" || r.estado === "DATOS_INCOMPLETOS").length,
+      locales:    resultados.filter(r => r.metodo === "local" && r.valido).length,
+      errores:    resultados.filter(r => !r.valido || r.estado === "Error" || r.estado === "Errores estructurales").length,
     };
   }, [resultados]);
 
@@ -7949,9 +7951,22 @@ function ValidacionSAT() {
   };
 
   const estadoColor = (e) => ({
-    "Vigente": "var(--success)", "Cancelado": "var(--danger)",
-    "No Encontrado": "var(--warn)",
+    "Vigente":            "var(--success)",
+    "Cancelado":          "var(--danger)",
+    "No Encontrado":      "var(--warn)",
+    "Estructura válida":  "var(--accent)",
+    "Errores estructurales": "var(--danger)",
+    "Error":              "var(--text-3)",
   }[e] || "var(--text-3)");
+
+  const estadoLabel = (r) => {
+    if (r.estado === "Vigente")           return "✓ Vigente";
+    if (r.estado === "Cancelado")         return "✗ Cancelado";
+    if (r.estado === "No Encontrado")     return "? No encontrado";
+    if (r.estado === "Estructura válida") return "✓ Estr. válida*";
+    if (r.estado === "Errores estructurales") return "✗ Inv." + (r.errores?.[0] ? ": " + r.errores[0].slice(0,25) : "");
+    return r.estado || "—";
+  };
 
   return (
     <>
@@ -7997,9 +8012,14 @@ function ValidacionSAT() {
             <div style={{fontSize:28, fontWeight:700, color:"var(--warn)"}}>{resumen.noEncontrados}</div>
             <div style={{fontSize:12, color:"var(--text-3)"}}>No encontrados</div>
           </div>
-          <div className="card" style={{textAlign:"center", padding:"16px 12px"}}>
-            <div style={{fontSize:28, fontWeight:700, color:"var(--text-3)"}}>{resumen.errores}</div>
-            <div style={{fontSize:12, color:"var(--text-3)"}}>Errores</div>
+          <div className="card" style={{textAlign:"center", padding:"16px 12px",
+              borderColor: resumen.locales>0?"var(--accent)":"var(--border)"}}>
+            <div style={{fontSize:28, fontWeight:700, color: resumen.locales>0?"var(--accent)":"var(--text-3)"}}>
+              {resumen.locales}
+            </div>
+            <div style={{fontSize:12, color:"var(--text-3)"}}>
+              Solo local *
+            </div>
           </div>
         </div>
       )}
@@ -8015,7 +8035,8 @@ function ValidacionSAT() {
           <table className="t" style={{width:"100%"}}>
             <thead>
               <tr>
-                <th>Folio</th><th>Emisor</th><th>UUID</th><th className="num">Total</th><th>Estado SAT</th>
+                <th>Folio</th><th>Emisor</th><th>UUID</th><th className="num">Total</th>
+                <th>Estado</th><th>Método</th><th title="Verificar en el portal del SAT">SAT.gob</th>
               </tr>
             </thead>
             <tbody>
@@ -8031,8 +8052,27 @@ function ValidacionSAT() {
                   <td>
                     <span style={{padding:"3px 10px", borderRadius:12, fontSize:11, fontWeight:600,
                       background: estadoColor(r.estado)+"22", color: estadoColor(r.estado)}}>
-                      {r.estado === "Vigente" ? "✓ Vigente" : r.estado === "Cancelado" ? "✗ Cancelado" : r.estado}
+                      {estadoLabel(r)}
                     </span>
+                    {r.errores && r.errores.length > 0 && r.estado !== "Errores estructurales" && (
+                      <div style={{fontSize:10, color:"var(--warn)", marginTop:2}}>{r.errores.join(", ").slice(0,50)}</div>
+                    )}
+                  </td>
+                  <td>
+                    <span style={{fontSize:10, padding:"2px 6px", borderRadius:8,
+                      background: r.metodo==="sat-soap"?"var(--success-soft)":"var(--surface-2)",
+                      color: r.metodo==="sat-soap"?"var(--success)":"var(--text-3)"}}>
+                      {r.metodo==="sat-soap" ? "SAT" : "Local"}
+                    </span>
+                  </td>
+                  <td>
+                    {r.urlVerificacionSAT
+                      ? <a href={r.urlVerificacionSAT} target="_blank" rel="noopener"
+                          style={{fontSize:11,color:"var(--accent)",textDecoration:"underline"}}
+                          title={r.nota||"Verificar en portal SAT"}>
+                          Verificar ↗
+                        </a>
+                      : <span style={{fontSize:10,color:"var(--text-3)"}}>Sin RFC</span>}
                   </td>
                 </tr>
               ))}
@@ -8042,7 +8082,12 @@ function ValidacionSAT() {
       )}
 
       {!resultados && !validando && (
-        <EmptyState icon="lock" title="Sin validar" sub="Selecciona un mes y presiona 'Validar ante SAT' para verificar el estatus de todos los CFDIs contra el webservice oficial del SAT." accent={true}/>
+        <EmptyState icon="lock" title="Sin validar"
+          sub="Selecciona un mes y presiona 'Validar'. Se verifican RFCs, montos y estructura localmente. Si el SAT responde (IPs autorizadas), también se consulta el estatus de cancelación en tiempo real." accent={true}/>
+        <div style={{fontSize:11.5, color:"var(--text-3)", marginTop:12, padding:"8px 12px", background:"var(--surface-2)", borderRadius:8}}>
+          * Los CFDIs marcados como "Solo local" tienen estructura válida pero el SAT no respondió desde este servidor.
+          Usa el enlace "Verificar ↗" en tu navegador para confirmar el estatus de cancelación directamente en el portal del SAT.
+        </div>
       )}
     </>
   );
