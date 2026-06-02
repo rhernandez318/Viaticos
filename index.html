@@ -2558,6 +2558,7 @@ const NAV = {
   ],
   contador: [
     { id: "polizas",   label: "Pólizas contables",  icon: "book" },
+    { id: "reportes",  label: "Reportes",            icon: "chart" },
     { id: "catalogo",  label: "Catálogo de gastos", icon: "book" },
     { id: "perfil",    label: "Mi perfil",           icon: "settings" },
   ],
@@ -6690,7 +6691,7 @@ function Reportes({ role, userId }) {
   // Los demás gerentes solo ven su equipo.
   const CENTRO_ADMIN = "100010009";
   const userObj   = userId ? window.findUser(userId) : null;
-  const esGerenteAdmin = role === "admin" ||
+  const esGerenteAdmin = role === "admin" || role === "contador" || role === "tesoreria" ||
     (role === "gerente" && userObj && userObj.centro === CENTRO_ADMIN);
   // IDs del equipo del gerente (para filtrar si no es gerente admin)
   const teamIds = (!esGerenteAdmin && role === "gerente" && userId)
@@ -10285,7 +10286,7 @@ function MReportes({ role, userId }) {
     <div className="m-pad">
       {/* Header con filtros */}
       <div style={{paddingTop:4, marginBottom:14}}>
-        <div style={{fontSize:11, color:"var(--text-3)", textTransform:"uppercase", letterSpacing:"0.06em"}}>{role === "admin" ? "Admin" : "Tesorería"}</div>
+        <div style={{fontSize:11, color:"var(--text-3)", textTransform:"uppercase", letterSpacing:"0.06em"}}>{role === "admin" ? "Admin" : role === "contador" ? "Contabilidad" : "Tesorería"}</div>
         <div style={{fontFamily:"var(--f-display)", fontSize:22, fontWeight:600, letterSpacing:"-0.02em"}}>Reportes</div>
       </div>
       <div style={{display:"flex", gap:8, marginBottom:8, flexWrap:"wrap"}}>
@@ -10706,6 +10707,7 @@ const M_TABS = {
   ],
   contador: [
     {id:"home", label:"Pólizas", icon:"book"},
+    {id:"reportes", label:"Reportes", icon:"chart"},
     {id:"catalogo", label:"Catálogo", icon:"book"},
     {id:"profile", label:"Perfil", icon:"settings"},
   ],
@@ -10872,6 +10874,7 @@ function MobileApp({ userId, role, onLogout, setPage, openDetail }) {
       if (tab === "profile")  { headerTitle = "Mi perfil"; body = <MProfile userId={userId} onLogout={onLogout}/>; }
     } else if (role === "contador") {
       if (tab === "home")     body = <MContadorPolizas push={push} showSnack={showSnack}/>;
+      if (tab === "reportes") { body = <MReportes role={role} userId={userId}/>; }
       if (tab === "catalogo") { headerTitle = "Catálogo de gastos"; body = <MContadorCatalogo/>; }
       if (tab === "profile")  { headerTitle = "Mi perfil"; body = <MProfile userId={userId} onLogout={onLogout}/>; }
     } else if (role === "admin") {
@@ -11114,7 +11117,7 @@ const VALID_PAGES = {
   gerente:  ["bandeja","equipo","historial","reportes","perfil","mis-solicitudes","anticipos","reembolsos","nuevo-reembolso","cerrar-anticipo","comprobaciones","metricas"],
   tesoreria:["liberacion","pagados","deudores","reportes","usuarios","perfil"],
   admin:    ["usuarios","centros","catalogo","reportes","ajustes","perfil","liberacion","pagados","deudores","polizas","bandeja","equipo","historial","dash","anticipos","comprobaciones","reembolsos","nuevo-reembolso","cerrar-anticipo","mis-solicitudes","metricas","ajustes-sistema"],
-  contador: ["polizas","catalogo","perfil"],
+  contador: ["polizas","reportes","catalogo","perfil"],
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -11675,6 +11678,7 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
   }
   if (role === "contador") {
     if (page === "polizas")   return <ContadorPolizas/>;
+    if (page === "reportes")  return <Reportes role={role} userId={userId}/>;
     if (page === "catalogo")  return <AdminCatalogo/>;
     return <ContadorPolizas/>;
   }
