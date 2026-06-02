@@ -4298,10 +4298,21 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
                         <td>
                           {c.duplicado
                             ? <span style={{fontSize:11,color:"var(--danger)"}}>{c.motivoDup||"Ya registrado"}</span>
-                            : <div style={{display:"flex", flexDirection:"column", gap:2}}>
-                                <span style={{fontSize:12.5}}>{cuenta.nombre}</span>
-                                <span className="mono muted" style={{fontSize:11}}>{cuenta.cuenta}</span>
-                              </div>
+                            : <select 
+                                className="select" 
+                                value={c.cuenta||""} 
+                                onChange={e => updItem(c.id, "cuenta", e.target.value)}
+                                style={{
+                                  width:"100%", fontSize:11.5, padding:"6px 8px",
+                                  borderColor: c.cuenta === "6121200001" ? "var(--warn)" : "var(--border)",
+                                  background: c.cuenta === "6121200001" ? "rgba(245,158,11,.06)" : "var(--surface)",
+                                }}
+                                title={c.cuenta === "6121200001" ? "⚠ Cuenta 'No Deducibles' — revisa si aplica" : "Cambia la cuenta contable"}
+                              >
+                                {window.CATALOGO_GASTOS.map(g => (
+                                  <option key={g.cuenta} value={g.cuenta}>{g.cuenta} · {g.nombre}</option>
+                                ))}
+                              </select>
                           }
                         </td>
                         <td>
@@ -4571,7 +4582,25 @@ function NuevoReembolso({ setPage, userId }) {
                   <tr key={i} style={it.duplicado?{textDecoration:"line-through",color:"var(--danger)",opacity:.6}:{}}>
                     <td style={{fontSize:12}}>{it.emisor||"—"}{it.duplicado&&<span style={{fontSize:10,marginLeft:6}}>⚠ {it.motivoDup}</span>}</td>
                     <td style={{fontSize:12,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.concepto||"—"}</td>
-                    <td style={{fontSize:11}}>{meta.nombre}</td>
+                    <td>
+                      {it.duplicado 
+                        ? <span style={{fontSize:11}}>{meta.nombre}</span>
+                        : <select 
+                            className="select"
+                            value={it.cuenta||""}
+                            onChange={e => setItems(prev => prev.map((x,j) => j===i ? {...x, cuenta: e.target.value} : x))}
+                            style={{
+                              width:"100%", fontSize:11, padding:"5px 6px",
+                              borderColor: it.cuenta === "6121200001" ? "var(--warn)" : "var(--border)",
+                              background: it.cuenta === "6121200001" ? "rgba(245,158,11,.06)" : "var(--surface)",
+                            }}
+                            title={it.cuenta === "6121200001" ? "⚠ No Deducibles — revisa" : "Cambia la cuenta"}
+                          >
+                            {window.CATALOGO_GASTOS.map(g => (
+                              <option key={g.cuenta} value={g.cuenta}>{g.cuenta} · {g.nombre}</option>
+                            ))}
+                          </select>}
+                    </td>
                     <td className="num">{window.fmtMXN(it.total||0)}</td>
                     <td><div className="icon-btn" onClick={()=>setItems(prev=>prev.filter((_,j)=>j!==i))}><Icon name="x" size={12}/></div></td>
                   </tr>
@@ -9294,11 +9323,31 @@ function MobileScan({ userId, onDone }) {
                 <span className="muted" style={{fontSize:11}}>IVA</span>
                 <strong className="mono" style={{fontSize:12}}>{window.fmtMXN(f.iva)}</strong>
               </div>
-              <div style={{marginTop:8,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                <div>
-                  <div style={{fontSize:11,fontWeight:600}}>{f.nombreCuenta}</div>
-                  <div style={{fontFamily:"monospace",fontSize:10,color:"var(--text-3)"}}>{f.cuenta}</div>
-                </div>
+              <div style={{marginTop:8}}>
+                <div style={{fontSize:10.5,color:"var(--text-3)",marginBottom:3,fontWeight:600,letterSpacing:"0.04em"}}>CUENTA CONTABLE</div>
+                <select
+                  className="select"
+                  value={f.cuenta||""}
+                  onChange={e => {
+                    const v = e.target.value;
+                    const meta = window.findCuenta(v) || {nombre: v};
+                    setFacturas(prev => prev.map((x,j) => j===i ? {...x, cuenta: v, nombreCuenta: meta.nombre} : x));
+                  }}
+                  style={{
+                    width:"100%", fontSize:12, padding:"7px 8px",
+                    borderColor: f.cuenta === "6121200001" ? "var(--warn)" : "var(--border)",
+                    background: f.cuenta === "6121200001" ? "rgba(245,158,11,.08)" : "var(--surface)",
+                  }}
+                >
+                  {window.CATALOGO_GASTOS.map(g => (
+                    <option key={g.cuenta} value={g.cuenta}>{g.cuenta} · {g.nombre}</option>
+                  ))}
+                </select>
+                {f.cuenta === "6121200001" && (
+                  <div style={{fontSize:10,color:"var(--warn)",marginTop:3}}>⚠ No Deducibles — verifica si aplica</div>
+                )}
+              </div>
+              <div style={{marginTop:8,display:"flex",alignItems:"center",justifyContent:"flex-end"}}>
                 <span style={chipStyle(f.confianza>=0.85)}>
                   {Math.round(f.confianza*100)}% {f.confianza>=0.85?"✓":"revisar"}
                 </span>
@@ -9322,7 +9371,49 @@ function MobileScan({ userId, onDone }) {
               )}
             </>
           ) : (
-            <div className="muted" style={{fontSize:12}}>Archivo adjunto (no XML)</div>
+            <div style={{marginTop:4}}>
+              <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:8,alignItems:"center",marginBottom:8}}>
+                <span style={{fontSize:11,color:"var(--text-3)"}}>Total $</span>
+                <input
+                  type="number" inputMode="decimal" step="0.01" min="0"
+                  value={f.total||""}
+                  onChange={e => {
+                    const v = parseFloat(e.target.value)||0;
+                    setFacturas(prev => prev.map((x,j) => j===i ? {
+                      ...x, total: v,
+                      subtotal: v ? +(v/1.16).toFixed(2) : 0,
+                      iva: v ? +(v - v/1.16).toFixed(2) : 0,
+                    } : x));
+                  }}
+                  style={{padding:"6px 8px",fontSize:13,border:"1px solid var(--border)",
+                    borderRadius:6,background:"var(--surface)",color:"var(--text)",
+                    fontFamily:"monospace",textAlign:"right",width:"100%",boxSizing:"border-box"}}
+                  placeholder="0.00"
+                />
+              </div>
+              <div style={{fontSize:10.5,color:"var(--text-3)",marginBottom:3,fontWeight:600,letterSpacing:"0.04em"}}>CUENTA CONTABLE</div>
+              <select
+                className="select"
+                value={f.cuenta||"6121200001"}
+                onChange={e => {
+                  const v = e.target.value;
+                  const meta = window.findCuenta(v) || {nombre: v};
+                  setFacturas(prev => prev.map((x,j) => j===i ? {...x, cuenta: v, nombreCuenta: meta.nombre} : x));
+                }}
+                style={{
+                  width:"100%", fontSize:12, padding:"7px 8px",
+                  borderColor: f.cuenta === "6121200001" ? "var(--warn)" : "var(--border)",
+                  background: f.cuenta === "6121200001" ? "rgba(245,158,11,.08)" : "var(--surface)",
+                }}
+              >
+                {window.CATALOGO_GASTOS.map(g => (
+                  <option key={g.cuenta} value={g.cuenta}>{g.cuenta} · {g.nombre}</option>
+                ))}
+              </select>
+              {f.cuenta === "6121200001" && (
+                <div style={{fontSize:10,color:"var(--warn)",marginTop:3}}>⚠ No Deducibles — verifica si aplica</div>
+              )}
+            </div>
           )}
         </div>
       ))}
