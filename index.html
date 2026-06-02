@@ -1431,6 +1431,9 @@ async function loadSolicitudes() {
           archivo_url: c.archivo_url || null,
           archivo_xml_url: c.archivo_xml_url,
           archivo_pdf_url: c.archivo_pdf_url,
+          rfcEmisor: c.rfc_emisor || null,
+          rfcReceptor: c.rfc_receptor || null,
+          satEstado: c.sat_estado || null,
         })),
       });
     });
@@ -2558,6 +2561,8 @@ const NAV = {
   ],
   contador: [
     { id: "polizas",   label: "Pólizas contables",  icon: "book" },
+    { id: "validacion-sat", label: "Validación SAT", icon: "lock" },
+    { id: "conciliacion-sat", label: "Conciliación SAT", icon: "check" },
     { id: "reportes",  label: "Reportes",            icon: "chart" },
     { id: "catalogo",  label: "Catálogo de gastos", icon: "book" },
     { id: "perfil",    label: "Mi perfil",           icon: "settings" },
@@ -3851,6 +3856,8 @@ function CompUploader({ onAdd, solicitudId, onOcrUpdate }) {
       const emisorEl = qn(doc, "Emisor");
       const emisor   = attr(emisorEl, "Nombre", "nombre") || attr(emisorEl, "Rfc", "rfc") || "";
       const rfc      = attr(emisorEl, "Rfc", "rfc") || "";
+      const receptorEl = qn(doc, "Receptor");
+      const rfcReceptor = attr(receptorEl, "Rfc", "rfc") || "";
 
       const conceptoEls = qnAll(doc, "Concepto");
       const conceptos = conceptoEls.map(c => attr(c, "Descripcion", "descripcion")).filter(Boolean);
@@ -3878,6 +3885,8 @@ function CompUploader({ onAdd, solicitudId, onOcrUpdate }) {
         uuid: uuidDisplay,
         uuidFull: uuid.toUpperCase() || "",
         emisor: emisor || rfc || "Emisor desconocido",
+        rfcEmisor: rfc,
+        rfcReceptor: rfcReceptor,
         concepto: conceptoStr,
         subtotal: Math.round(subtotal * 100) / 100,
         iva: Math.round(iva * 100) / 100,
@@ -4129,6 +4138,8 @@ function NuevaComprobacion({ setPage, userId = "U001" }) {
             subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
             cuenta: it.cuenta, confianza: it.confianza||0.9,
             archivo_url: it.archivo_url || null,
+            rfc_emisor: it.rfcEmisor || it.rfc_emisor || null,
+            rfc_receptor: it.rfcReceptor || it.rfc_receptor || null,
           }));
         await window.saveCfdiRows(cfdiPayload);
       }
@@ -4500,6 +4511,8 @@ function NuevoReembolso({ setPage, userId }) {
           subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
           cuenta: it.cuenta, confianza: it.confianza||0.9,
           archivo_url: it.archivo_url || null,
+          rfc_emisor: it.rfcEmisor || it.rfc_emisor || null,
+          rfc_receptor: it.rfcReceptor || it.rfc_receptor || null,
         }));
         await window.saveCfdiRows(cfdiRows);
       }
@@ -7845,6 +7858,580 @@ function ContadorPolizas() {
 }
 
 // Campo editable inline para el nombre del proveedor en pólizas
+// ── Validación masiva ante el SAT ────────────────────────────────────────────
+function ValidacionSAT() {
+  const WORKER_BASE = "https://viaticos-admin.rhernandez-e52.workers.dev";
+  const WORKER_TOKEN = window.WORKER_SECRET_TOKEN || "viaticos-zapata-push-2026";
+  const [mes, setMes] = React.useState(new Date().toISOString().slice(0,7));
+  const [validando, setValidando] = React.useState(false);
+  const [progreso, setProgreso] = React.useState(0);
+  const [resultados, setResultados] = React.useState(null);
+
+  // Reúne CFDIs del mes seleccionado desde las solicitudes
+  const cfdisDelMes = React.useMemo(() => {
+    const lista = [];
+    (window.SOLICITUDES || []).forEach(s => {
+      (s.cfdi || []).forEach(cf => {
+        const uuid = cf.uuidFull || cf.uuid;
+        if (!uuid || uuid.startsWith("CIERRE")) return;
+        const fechaSol = s.fecha instanceof Date ? s.fecha : new Date(s.fecha);
+        const mesSol = fechaSol.toISOString().slice(0,7);
+        if (mesSol !== mes) return;
+        lista.push({
+          uuid,
+          rfcEmisor: cf.rfcEmisor || cf.rfc_emisor || "",
+          rfcReceptor: cf.rfcReceptor || cf.rfc_receptor || window.RFC_EMPRESA || "",
+          total: cf.total || 0,
+          emisor: cf.emisor || "",
+          folio: s.id,
+        });
+      });
+    });
+    // Dedup por uuid
+    const vistos = new Set();
+    return lista.filter(c => { if (vistos.has(c.uuid)) return false; vistos.add(c.uuid); return true; });
+  }, [mes]);
+
+  const validar = async () => {
+    if (cfdisDelMes.length === 0) { alert("No hay CFDIs en el mes seleccionado"); return; }
+    setValidando(true);
+    setProgreso(0);
+    setResultados(null);
+    const todos = [];
+    // Procesar en lotes de 50
+    for (let i = 0; i < cfdisDelMes.length; i += 50) {
+      const lote = cfdisDelMes.slice(i, i+50);
+      try {
+        const res = await fetch(WORKER_BASE + "/validar-sat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + WORKER_TOKEN },
+          body: JSON.stringify({ cfdis: lote }),
+        });
+        const data = await res.json();
+        if (data.resultados) {
+          // Enriquecer con datos locales
+          data.resultados.forEach(r => {
+            const local = cfdisDelMes.find(c => c.uuid === r.uuid);
+            todos.push({ ...r, emisor: local?.emisor, folio: local?.folio, total: local?.total });
+          });
+        }
+      } catch (e) {
+        lote.forEach(c => todos.push({ uuid: c.uuid, estado: "ERROR", error: e.message, emisor: c.emisor, folio: c.folio }));
+      }
+      setProgreso(Math.round(((i + lote.length) / cfdisDelMes.length) * 100));
+    }
+    setResultados(todos);
+    setValidando(false);
+  };
+
+  const resumen = React.useMemo(() => {
+    if (!resultados) return null;
+    return {
+      vigentes:   resultados.filter(r => r.estado === "Vigente").length,
+      cancelados: resultados.filter(r => r.estado === "Cancelado").length,
+      noEncontrados: resultados.filter(r => r.estado === "No Encontrado").length,
+      errores:    resultados.filter(r => r.estado === "ERROR" || r.estado === "ERROR_RED" || r.estado === "DATOS_INCOMPLETOS").length,
+    };
+  }, [resultados]);
+
+  const exportar = () => {
+    if (!resultados || typeof XLSX === "undefined") return;
+    const rows = resultados.map(r => ({
+      Folio: r.folio || "", UUID: r.uuid, Emisor: r.emisor || "",
+      Total: r.total || 0, Estado: r.estado,
+      "Estatus SAT": r.codigoEstatus || "", "Es Cancelable": r.esCancelable || "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Validación SAT");
+    XLSX.writeFile(wb, `validacion_sat_${mes}.xlsx`);
+  };
+
+  const estadoColor = (e) => ({
+    "Vigente": "var(--success)", "Cancelado": "var(--danger)",
+    "No Encontrado": "var(--warn)",
+  }[e] || "var(--text-3)");
+
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Validación SAT</h1>
+          <div className="page-sub">Verifica que los CFDIs estén vigentes (no cancelados) ante el SAT</div>
+        </div>
+      </div>
+
+      <div className="card" style={{marginBottom:16}}>
+        <div className="row" style={{gap:12, alignItems:"flex-end", flexWrap:"wrap"}}>
+          <div className="field" style={{margin:0}}>
+            <label>Mes a validar</label>
+            <input type="month" className="input" value={mes} onChange={e=>setMes(e.target.value)} style={{width:170}}/>
+          </div>
+          <div style={{fontSize:13, color:"var(--text-3)", paddingBottom:8}}>
+            {cfdisDelMes.length} CFDI{cfdisDelMes.length!==1?"s":""} en este mes
+          </div>
+          <button className="btn primary" onClick={validar} disabled={validando || cfdisDelMes.length===0} style={{marginLeft:"auto"}}>
+            {validando ? `Validando… ${progreso}%` : "Validar ante SAT"}
+          </button>
+          {resultados && <button className="btn" onClick={exportar}><Icon name="download" size={13}/> Exportar Excel</button>}
+        </div>
+        {validando && (
+          <div style={{marginTop:12, height:6, background:"var(--surface-2)", borderRadius:3, overflow:"hidden"}}>
+            <div style={{height:"100%", width:progreso+"%", background:"var(--accent)", transition:"width .3s"}}/>
+          </div>
+        )}
+      </div>
+
+      {resumen && (
+        <div style={{display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:16}}>
+          <div className="card" style={{textAlign:"center", padding:"16px 12px"}}>
+            <div style={{fontSize:28, fontWeight:700, color:"var(--success)"}}>{resumen.vigentes}</div>
+            <div style={{fontSize:12, color:"var(--text-3)"}}>Vigentes</div>
+          </div>
+          <div className="card" style={{textAlign:"center", padding:"16px 12px", borderColor: resumen.cancelados>0?"var(--danger)":"var(--border)"}}>
+            <div style={{fontSize:28, fontWeight:700, color:"var(--danger)"}}>{resumen.cancelados}</div>
+            <div style={{fontSize:12, color:"var(--text-3)"}}>⚠ Cancelados</div>
+          </div>
+          <div className="card" style={{textAlign:"center", padding:"16px 12px"}}>
+            <div style={{fontSize:28, fontWeight:700, color:"var(--warn)"}}>{resumen.noEncontrados}</div>
+            <div style={{fontSize:12, color:"var(--text-3)"}}>No encontrados</div>
+          </div>
+          <div className="card" style={{textAlign:"center", padding:"16px 12px"}}>
+            <div style={{fontSize:28, fontWeight:700, color:"var(--text-3)"}}>{resumen.errores}</div>
+            <div style={{fontSize:12, color:"var(--text-3)"}}>Errores</div>
+          </div>
+        </div>
+      )}
+
+      {resumen && resumen.cancelados > 0 && (
+        <div style={{padding:"12px 16px", background:"rgba(226,75,74,.1)", border:"1px solid var(--danger)", borderRadius:8, marginBottom:16, fontSize:13, color:"var(--danger)"}}>
+          ⚠ <strong>Atención:</strong> Hay {resumen.cancelados} CFDI(s) cancelado(s) que podrían estar deducidos. Revísalos antes del cierre fiscal.
+        </div>
+      )}
+
+      {resultados && (
+        <div className="card" style={{padding:0, overflow:"hidden"}}>
+          <table className="t" style={{width:"100%"}}>
+            <thead>
+              <tr>
+                <th>Folio</th><th>Emisor</th><th>UUID</th><th className="num">Total</th><th>Estado SAT</th>
+              </tr>
+            </thead>
+            <tbody>
+              {resultados.sort((a,b) => {
+                const order = {"Cancelado":0,"No Encontrado":1,"ERROR":2,"Vigente":3};
+                return (order[a.estado]??9) - (order[b.estado]??9);
+              }).map((r,i) => (
+                <tr key={i} style={r.estado==="Cancelado"?{background:"rgba(226,75,74,.06)"}:{}}>
+                  <td className="id-cell">{r.folio||"—"}</td>
+                  <td style={{fontSize:12}}>{r.emisor||"—"}</td>
+                  <td className="id-cell" style={{fontSize:11}}>{r.uuid.slice(0,18)}…</td>
+                  <td className="num">{window.fmtMXN(r.total||0)}</td>
+                  <td>
+                    <span style={{padding:"3px 10px", borderRadius:12, fontSize:11, fontWeight:600,
+                      background: estadoColor(r.estado)+"22", color: estadoColor(r.estado)}}>
+                      {r.estado === "Vigente" ? "✓ Vigente" : r.estado === "Cancelado" ? "✗ Cancelado" : r.estado}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!resultados && !validando && (
+        <EmptyState icon="lock" title="Sin validar" sub="Selecciona un mes y presiona 'Validar ante SAT' para verificar el estatus de todos los CFDIs contra el webservice oficial del SAT." accent={true}/>
+      )}
+    </>
+  );
+}
+
+// ── Conciliación CFDI vs Metadata del SAT ────────────────────────────────────
+function TrazabilidadPoliza() {
+  const [folio, setFolio] = React.useState("");
+  const [buscando, setBuscando] = React.useState(false);
+  const [resultado, setResultado] = React.useState(null);
+  const [error, setError] = React.useState(null);
+
+  const buscar = async () => {
+    const f = folio.trim().toUpperCase();
+    if (!f) { setError("Ingresa un folio"); return; }
+    setBuscando(true); setError(null); setResultado(null);
+
+    // 1. Buscar la solicitud por folio (en memoria y en Supabase)
+    let sol = window.SOLICITUDES.find(s => (s.id||"").toUpperCase() === f);
+    if (!sol && window.sb) {
+      const { data } = await window.sb.from("solicitudes").select("*, cfdi:comprobantes_cfdi(*)").eq("id", f).maybeSingle();
+      if (data) {
+        sol = {
+          id: data.id, tipo: data.tipo, concepto: data.concepto, usuario: data.usuario_id,
+          monto: parseFloat(data.monto)||0, fecha: new Date(data.fecha), status: data.status,
+          anticipoRef: data.anticipo_ref, motivoRechazo: data.motivo_rechazo,
+          cfdi: (data.cfdi||[]).map(c => ({
+            uuid: c.uuid, emisor: c.emisor, concepto: c.concepto,
+            total: parseFloat(c.total)||0, cuenta: c.cuenta,
+            archivo_url: c.archivo_url, rfcEmisor: c.rfc_emisor, satEstado: c.sat_estado,
+          })),
+        };
+      }
+    }
+    if (!sol) { setError(`No se encontró la solicitud/póliza "${f}"`); setBuscando(false); return; }
+
+    // 2. Cargar bitácora de esta solicitud
+    let bitacora = [];
+    if (window.sb) {
+      const { data } = await window.sb.from("bitacora").select("*").eq("solicitud_id", sol.id).order("ts", {ascending:true});
+      bitacora = data || [];
+    }
+
+    // 3. Si es comprobación con anticipoRef, traer el anticipo padre
+    let anticipoPadre = null;
+    if (sol.anticipoRef) {
+      anticipoPadre = window.SOLICITUDES.find(s => s.id === sol.anticipoRef);
+      if (!anticipoPadre && window.sb) {
+        const { data } = await window.sb.from("solicitudes").select("*").eq("id", sol.anticipoRef).maybeSingle();
+        if (data) anticipoPadre = { id: data.id, status: data.status, monto: parseFloat(data.monto)||0, fecha: new Date(data.fecha) };
+      }
+    }
+
+    // 4. Comprobaciones ligadas (si esta es un anticipo)
+    let comprobacionesLigadas = [];
+    if (sol.tipo === "anticipo") {
+      comprobacionesLigadas = window.SOLICITUDES.filter(s => s.anticipoRef === sol.id);
+    }
+
+    setResultado({ sol, bitacora, anticipoPadre, comprobacionesLigadas });
+    setBuscando(false);
+  };
+
+  const accionLabel = {
+    creado: "Creado", solicitado: "Solicitado", autorizado: "Autorizado",
+    liberado: "Liberado", comprobado: "Comprobado", rechazado: "Rechazado",
+    dispersado: "Dispersado SPEI", comentario: "Comentario",
+  };
+  const accionColor = {
+    autorizado: "var(--accent)", liberado: "var(--success)", comprobado: "var(--success)",
+    rechazado: "var(--danger)", dispersado: "var(--success)",
+  };
+
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Trazabilidad de póliza</h1>
+          <div className="page-sub">Auditoría completa: solicitud → autorización → liberación → comprobantes → asiento</div>
+        </div>
+      </div>
+
+      <div className="card" style={{marginBottom:16}}>
+        <div className="row" style={{gap:10, alignItems:"flex-end"}}>
+          <div className="field" style={{margin:0, flex:1, maxWidth:300}}>
+            <label>Folio de solicitud / póliza</label>
+            <input className="input mono" placeholder="Ej: ANT-2026-0042" value={folio}
+              onChange={e=>setFolio(e.target.value)}
+              onKeyDown={e=>{ if(e.key==="Enter") buscar(); }}/>
+          </div>
+          <button className="btn primary" onClick={buscar} disabled={buscando}>
+            {buscando ? "Buscando…" : "Rastrear"}
+          </button>
+        </div>
+        {error && <div style={{marginTop:10, color:"var(--danger)", fontSize:13}}>⚠ {error}</div>}
+      </div>
+
+      {resultado && (() => {
+        const { sol, bitacora, anticipoPadre, comprobacionesLigadas } = resultado;
+        const u = window.findUser(sol.usuario) || { nombre: "—", iniciales: "?" };
+        const c = window.findCentro(u.centro) || { nombre: "—" };
+        return (
+          <div style={{display:"flex", flexDirection:"column", gap:16}}>
+            {/* Encabezado de la solicitud */}
+            <div className="card">
+              <div className="row" style={{justifyContent:"space-between", alignItems:"flex-start"}}>
+                <div>
+                  <div style={{fontSize:20, fontWeight:700, fontFamily:"monospace"}}>{sol.id}</div>
+                  <div style={{fontSize:14, color:"var(--text-2)", marginTop:4}}>{sol.concepto}</div>
+                </div>
+                <div className="row" style={{gap:8}}>
+                  <TipoBadge tipo={sol.tipo}/>
+                  <StatusBadge status={sol.status}/>
+                </div>
+              </div>
+              <div className="form-grid cols-3" style={{marginTop:16}}>
+                <div className="field"><label>Solicitante</label><div style={{fontSize:13}}>{u.nombre}</div></div>
+                <div className="field"><label>Centro</label><div style={{fontSize:13}}>{c.nombre}</div></div>
+                <div className="field"><label>Monto</label><div style={{fontSize:15, fontWeight:600}}>{window.fmtMXN(sol.monto)}</div></div>
+              </div>
+              {anticipoPadre && (
+                <div style={{marginTop:10, padding:"8px 12px", background:"var(--accent-soft)", borderRadius:8, fontSize:13}}>
+                  🔗 Comprobación del anticipo <strong style={{fontFamily:"monospace"}}>{anticipoPadre.id}</strong> ({window.fmtMXN(anticipoPadre.monto)})
+                </div>
+              )}
+            </div>
+
+            {/* Línea de tiempo (bitácora) */}
+            <div className="card">
+              <div className="card-title" style={{marginBottom:16}}>Cadena de eventos</div>
+              {bitacora.length === 0 ? (
+                <div style={{fontSize:13, color:"var(--text-3)"}}>
+                  Sin registros de bitácora. La fecha de creación es {window.fmtFecha ? window.fmtFecha(sol.fecha) : sol.fecha.toLocaleDateString()}.
+                </div>
+              ) : (
+                <div style={{position:"relative", paddingLeft:24}}>
+                  <div style={{position:"absolute", left:7, top:8, bottom:8, width:2, background:"var(--border)"}}/>
+                  {bitacora.map((b, i) => {
+                    const actor = window.findUser(b.usuario_id);
+                    const color = accionColor[b.accion] || "var(--text-3)";
+                    return (
+                      <div key={i} style={{position:"relative", paddingBottom:18}}>
+                        <div style={{position:"absolute", left:-21, top:2, width:14, height:14, borderRadius:"50%",
+                          background:color, border:"2px solid var(--bg)"}}/>
+                        <div style={{display:"flex", justifyContent:"space-between", alignItems:"baseline"}}>
+                          <span style={{fontSize:13, fontWeight:600, color}}>{accionLabel[b.accion] || b.accion}</span>
+                          <span style={{fontSize:11, color:"var(--text-3)", fontFamily:"monospace"}}>
+                            {new Date(b.ts).toLocaleString("es-MX", {dateStyle:"short", timeStyle:"short"})}
+                          </span>
+                        </div>
+                        <div style={{fontSize:12, color:"var(--text-2)", marginTop:2}}>
+                          {actor ? actor.nombre : (b.usuario_id || "Sistema")}
+                          {b.detalle && <span style={{color:"var(--text-3)"}}> · {b.detalle}</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Comprobantes */}
+            {sol.cfdi && sol.cfdi.length > 0 && (
+              <div className="card">
+                <div className="card-title" style={{marginBottom:12}}>Comprobantes ({sol.cfdi.length})</div>
+                <table className="t" style={{width:"100%"}}>
+                  <thead><tr><th>UUID</th><th>Emisor</th><th>Cuenta</th><th style={{textAlign:"right"}}>Total</th><th>SAT</th><th></th></tr></thead>
+                  <tbody>
+                    {sol.cfdi.map((cf,i) => {
+                      const cta = window.findCuenta(cf.cuenta) || { nombre: cf.cuenta };
+                      return (
+                        <tr key={i}>
+                          <td className="mono" style={{fontSize:11}}>{cf.uuid ? (cf.uuid.startsWith("CIERRE")?"Depósito":cf.uuid.slice(0,18)+"…") : "—"}</td>
+                          <td style={{fontSize:12}}>{cf.emisor||"—"}</td>
+                          <td style={{fontSize:12}}>{cta.nombre}</td>
+                          <td className="num">{window.fmtMXN(cf.total)}</td>
+                          <td>{cf.satEstado
+                            ? <span style={{fontSize:10, fontWeight:600, color: cf.satEstado==="Vigente"?"var(--success)":"var(--danger)"}}>{cf.satEstado}</span>
+                            : <span style={{fontSize:10, color:"var(--text-3)"}}>sin validar</span>}</td>
+                          <td>{cf.archivo_url
+                            ? <button className="icon-btn" style={{padding:4}} onClick={()=>window.open(cf.archivo_url,"_blank")} title="Ver archivo"><Icon name="download" size={12}/></button>
+                            : <span style={{fontSize:10, color:"var(--text-3)"}}>⚠</span>}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Comprobaciones ligadas (si es anticipo) */}
+            {comprobacionesLigadas.length > 0 && (
+              <div className="card">
+                <div className="card-title" style={{marginBottom:12}}>Comprobaciones de este anticipo ({comprobacionesLigadas.length})</div>
+                <table className="t" style={{width:"100%"}}>
+                  <thead><tr><th>Folio</th><th>Concepto</th><th>Estado</th><th style={{textAlign:"right"}}>Monto</th></tr></thead>
+                  <tbody>
+                    {comprobacionesLigadas.map((cm,i) => (
+                      <tr key={i} style={{cursor:"pointer"}} onClick={()=>{setFolio(cm.id); setTimeout(buscar,50);}}>
+                        <td className="mono" style={{fontSize:12, color:"var(--accent)"}}>{cm.id}</td>
+                        <td style={{fontSize:12}}>{cm.concepto}</td>
+                        <td><StatusBadge status={cm.status}/></td>
+                        <td className="num">{window.fmtMXN(cm.monto)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Resumen de auditoría */}
+            <div className="card" style={{background:"var(--surface-2)"}}>
+              <div className="card-title" style={{marginBottom:10}}>Resumen de auditoría</div>
+              <div style={{fontSize:12.5, color:"var(--text-2)", lineHeight:1.8}}>
+                <div>• Folio: <strong style={{fontFamily:"monospace"}}>{sol.id}</strong></div>
+                <div>• Eventos registrados en bitácora: <strong>{bitacora.length}</strong></div>
+                <div>• Comprobantes asociados: <strong>{(sol.cfdi||[]).length}</strong></div>
+                <div>• Comprobantes con archivo: <strong>{(sol.cfdi||[]).filter(c=>c.archivo_url).length}</strong></div>
+                {sol.status === "rechazado" && sol.motivoRechazo && <div style={{color:"var(--danger)"}}>• Motivo de rechazo: {sol.motivoRechazo}</div>}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+    </>
+  );
+}
+
+function ConciliacionSAT() {
+  const [metadata, setMetadata] = React.useState(null);  // CFDIs del archivo del SAT
+  const [cargando, setCargando] = React.useState(false);
+  const fileRef = React.useRef(null);
+
+  // CFDIs que tenemos en el sistema
+  const cfdisSistema = React.useMemo(() => {
+    const map = {};
+    (window.SOLICITUDES || []).forEach(s => {
+      (s.cfdi || []).forEach(cf => {
+        const uuid = (cf.uuidFull || cf.uuid || "").toUpperCase();
+        if (!uuid || uuid.startsWith("CIERRE")) return;
+        map[uuid] = { uuid, folio: s.id, emisor: cf.emisor, total: cf.total, status: s.status, usuario: s.usuario };
+      });
+    });
+    return map;
+  }, [metadata]);
+
+  const procesarArchivo = (file) => {
+    setCargando(true);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: "binary" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        // El Metadata del SAT tiene columnas: Uuid, RfcEmisor, NombreEmisor, Monto, Estatus, etc.
+        const parsed = rows.map(r => {
+          // Buscar columnas tolerante a variaciones de nombre
+          const get = (...keys) => { for (const k of keys) { for (const col in r) { if (col.toLowerCase().replace(/[\s_]/g,"").includes(k)) return r[col]; } } return ""; };
+          return {
+            uuid: String(get("uuid")).toUpperCase().trim(),
+            rfcEmisor: get("rfcemisor"),
+            emisor: get("nombreemisor","razonsocialemisor"),
+            monto: parseFloat(String(get("monto","total")).replace(/[,$]/g,"")) || 0,
+            estatus: get("estatus","estado"),
+            fecha: get("fechaemision","fecha"),
+            efecto: get("efectocomprobante","tipodecomprobante"),
+          };
+        }).filter(r => r.uuid && r.uuid.length > 30);
+        setMetadata(parsed);
+      } catch (err) {
+        alert("Error al leer el archivo: " + err.message + "\n\nAsegúrate de subir el Metadata (.xlsx/.csv) descargado del portal del SAT.");
+      }
+      setCargando(false);
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  // Cruce: 3 categorías
+  const analisis = React.useMemo(() => {
+    if (!metadata) return null;
+    const uuidsSistema = new Set(Object.keys(cfdisSistema));
+    const uuidsMetadata = new Set(metadata.map(m => m.uuid));
+
+    // 1. En SAT pero NO en sistema → recibidas sin comprobar
+    const sinComprobar = metadata.filter(m => !uuidsSistema.has(m.uuid) && (m.estatus||"").toLowerCase().includes("vigente"));
+    // 2. En sistema pero NO en Metadata del SAT → comprobaciones sin respaldo SAT
+    const sinRespaldo = Object.values(cfdisSistema).filter(c => !uuidsMetadata.has(c.uuid));
+    // 3. Coinciden → OK
+    const coinciden = Object.values(cfdisSistema).filter(c => uuidsMetadata.has(c.uuid));
+    // 4. Canceladas en SAT que SÍ están en sistema → riesgo fiscal
+    const canceladasEnSistema = metadata.filter(m => uuidsSistema.has(m.uuid) && (m.estatus||"").toLowerCase().includes("cancel"));
+
+    return { sinComprobar, sinRespaldo, coinciden, canceladasEnSistema };
+  }, [metadata, cfdisSistema]);
+
+  return (
+    <>
+      <div className="page-head">
+        <div>
+          <h1 className="page-title">Conciliación SAT</h1>
+          <div className="page-sub">Cruza el Metadata del portal del SAT contra los CFDIs comprobados en el sistema</div>
+        </div>
+      </div>
+
+      <div className="card" style={{marginBottom:16}}>
+        <div style={{fontSize:13, color:"var(--text-2)", marginBottom:12}}>
+          Descarga el archivo <strong>Metadata</strong> desde el Portal del SAT (Facturas → Consultar → Descarga masiva → Metadata) y súbelo aquí. El sistema cruzará los UUIDs.
+        </div>
+        <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv,.txt" style={{display:"none"}}
+          onChange={e => { if (e.target.files[0]) procesarArchivo(e.target.files[0]); }}/>
+        <button className="btn primary" onClick={() => fileRef.current?.click()} disabled={cargando}>
+          <Icon name="upload" size={14}/> {cargando ? "Procesando…" : "Subir Metadata del SAT"}
+        </button>
+        {metadata && <span style={{marginLeft:12, fontSize:13, color:"var(--text-3)"}}>{metadata.length} CFDIs en el archivo</span>}
+      </div>
+
+      {analisis && (
+        <>
+          <div style={{display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12, marginBottom:16}}>
+            <div className="card" style={{textAlign:"center", padding:"16px 12px"}}>
+              <div style={{fontSize:26, fontWeight:700, color:"var(--success)"}}>{analisis.coinciden.length}</div>
+              <div style={{fontSize:11.5, color:"var(--text-3)"}}>✓ Conciliados</div>
+            </div>
+            <div className="card" style={{textAlign:"center", padding:"16px 12px", borderColor: analisis.sinComprobar.length>0?"var(--warn)":"var(--border)"}}>
+              <div style={{fontSize:26, fontWeight:700, color:"var(--warn)"}}>{analisis.sinComprobar.length}</div>
+              <div style={{fontSize:11.5, color:"var(--text-3)"}}>Recibidas sin comprobar</div>
+            </div>
+            <div className="card" style={{textAlign:"center", padding:"16px 12px"}}>
+              <div style={{fontSize:26, fontWeight:700, color:"var(--accent)"}}>{analisis.sinRespaldo.length}</div>
+              <div style={{fontSize:11.5, color:"var(--text-3)"}}>Sin respaldo SAT</div>
+            </div>
+            <div className="card" style={{textAlign:"center", padding:"16px 12px", borderColor: analisis.canceladasEnSistema.length>0?"var(--danger)":"var(--border)"}}>
+              <div style={{fontSize:26, fontWeight:700, color:"var(--danger)"}}>{analisis.canceladasEnSistema.length}</div>
+              <div style={{fontSize:11.5, color:"var(--text-3)"}}>⚠ Canceladas deducidas</div>
+            </div>
+          </div>
+
+          {analisis.canceladasEnSistema.length > 0 && (
+            <div className="card" style={{marginBottom:16, borderColor:"var(--danger)"}}>
+              <div className="card-title" style={{color:"var(--danger)", marginBottom:12}}>⚠ CFDIs cancelados que están en el sistema</div>
+              <table className="t" style={{width:"100%"}}>
+                <thead><tr><th>UUID</th><th>Emisor</th><th className="num">Monto</th></tr></thead>
+                <tbody>
+                  {analisis.canceladasEnSistema.map((m,i) => (
+                    <tr key={i}><td className="id-cell" style={{fontSize:11}}>{m.uuid.slice(0,18)}…</td><td style={{fontSize:12}}>{m.emisor}</td><td className="num">{window.fmtMXN(m.monto)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {analisis.sinComprobar.length > 0 && (
+            <div className="card" style={{marginBottom:16}}>
+              <div className="card-title" style={{color:"var(--warn)", marginBottom:12}}>Facturas recibidas que nadie comprobó</div>
+              <table className="t" style={{width:"100%"}}>
+                <thead><tr><th>UUID</th><th>Emisor</th><th className="num">Monto</th><th>Fecha</th></tr></thead>
+                <tbody>
+                  {analisis.sinComprobar.slice(0,100).map((m,i) => (
+                    <tr key={i}><td className="id-cell" style={{fontSize:11}}>{m.uuid.slice(0,18)}…</td><td style={{fontSize:12}}>{m.emisor}</td><td className="num">{window.fmtMXN(m.monto)}</td><td style={{fontSize:11}}>{m.fecha}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+              {analisis.sinComprobar.length > 100 && <div style={{padding:8, fontSize:11, color:"var(--text-3)", textAlign:"center"}}>Mostrando 100 de {analisis.sinComprobar.length}</div>}
+            </div>
+          )}
+
+          {analisis.sinRespaldo.length > 0 && (
+            <div className="card">
+              <div className="card-title" style={{color:"var(--accent)", marginBottom:12}}>Comprobaciones sin respaldo en el Metadata SAT</div>
+              <div style={{fontSize:12, color:"var(--text-3)", marginBottom:10}}>Estos CFDIs están en el sistema pero no aparecen en el archivo del SAT. Verifica que el Metadata cubra el período correcto.</div>
+              <table className="t" style={{width:"100%"}}>
+                <thead><tr><th>Folio</th><th>UUID</th><th>Emisor</th><th className="num">Total</th></tr></thead>
+                <tbody>
+                  {analisis.sinRespaldo.slice(0,100).map((c,i) => (
+                    <tr key={i}><td className="id-cell">{c.folio}</td><td className="id-cell" style={{fontSize:11}}>{c.uuid.slice(0,18)}…</td><td style={{fontSize:12}}>{c.emisor}</td><td className="num">{window.fmtMXN(c.total)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {!analisis && !cargando && (
+        <EmptyState icon="upload" title="Sube el Metadata del SAT" sub="El cruce detectará facturas recibidas sin comprobar, comprobaciones sin respaldo fiscal y CFDIs cancelados que siguen deducidos." accent={true}/>
+      )}
+    </>
+  );
+}
+
 function EditableCell({ value, placeholder, onChange }) {
   const [editing, setEditing] = React.useState(false);
   const [val, setVal]         = React.useState(value || "");
@@ -8434,6 +9021,8 @@ function MobileScan({ userId, onDone }) {
             subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
             cuenta: it.cuenta, confianza: it.confianza||0.9,
             archivo_url: it.archivo_url || null,
+            rfc_emisor: it.rfcEmisor || it.rfc_emisor || null,
+            rfc_receptor: it.rfcReceptor || it.rfc_receptor || null,
           })));
       }
     }
@@ -10106,6 +10695,8 @@ function MNuevaComprobacion({ userId, onDone, showSnack }) {
             subtotal: it.subtotal||0, iva: it.iva||0, total: it.total||0,
             cuenta: it.cuenta, confianza: it.confianza||0.9,
             archivo_url: it.archivo_url || null,
+            rfc_emisor: it.rfcEmisor || it.rfc_emisor || null,
+            rfc_receptor: it.rfcReceptor || it.rfc_receptor || null,
           })));
       }
       // Actualizar saldo del anticipo padre
@@ -11117,7 +11708,7 @@ const VALID_PAGES = {
   gerente:  ["bandeja","equipo","historial","reportes","perfil","mis-solicitudes","anticipos","reembolsos","nuevo-reembolso","cerrar-anticipo","comprobaciones","metricas"],
   tesoreria:["liberacion","pagados","deudores","reportes","usuarios","perfil"],
   admin:    ["usuarios","centros","catalogo","reportes","ajustes","perfil","liberacion","pagados","deudores","polizas","bandeja","equipo","historial","dash","anticipos","comprobaciones","reembolsos","nuevo-reembolso","cerrar-anticipo","mis-solicitudes","metricas","ajustes-sistema"],
-  contador: ["polizas","reportes","catalogo","perfil"],
+  contador: ["polizas","validacion-sat","conciliacion-sat","reportes","catalogo","perfil"],
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -11678,6 +12269,8 @@ function resolveContent(role, page, userId, setDetailId, setPage, onLogout) {
   }
   if (role === "contador") {
     if (page === "polizas")   return <ContadorPolizas/>;
+    if (page === "validacion-sat")   return <ValidacionSAT/>;
+    if (page === "conciliacion-sat") return <ConciliacionSAT/>;
     if (page === "reportes")  return <Reportes role={role} userId={userId}/>;
     if (page === "catalogo")  return <AdminCatalogo/>;
     return <ContadorPolizas/>;
