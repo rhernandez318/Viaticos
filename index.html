@@ -8082,12 +8082,14 @@ function ValidacionSAT() {
       )}
 
       {!resultados && !validando && (
-        <EmptyState icon="lock" title="Sin validar"
-          sub="Selecciona un mes y presiona 'Validar'. Se verifican RFCs, montos y estructura localmente. Si el SAT responde (IPs autorizadas), también se consulta el estatus de cancelación en tiempo real." accent={true}/>
-        <div style={{fontSize:11.5, color:"var(--text-3)", marginTop:12, padding:"8px 12px", background:"var(--surface-2)", borderRadius:8}}>
-          * Los CFDIs marcados como "Solo local" tienen estructura válida pero el SAT no respondió desde este servidor.
-          Usa el enlace "Verificar ↗" en tu navegador para confirmar el estatus de cancelación directamente en el portal del SAT.
-        </div>
+        <>
+          <EmptyState icon="lock" title="Sin validar"
+            sub="Selecciona un mes y presiona 'Validar'. Se verifican RFCs, montos y estructura localmente. Si el SAT responde (IPs autorizadas), también se consulta el estatus de cancelación en tiempo real." accent={true}/>
+          <div style={{fontSize:11.5, color:"var(--text-3)", marginTop:12, padding:"8px 12px", background:"var(--surface-2)", borderRadius:8}}>
+            * CFDIs marcados "Solo local": estructura válida pero el SAT no respondió desde este servidor.
+            Usa "Verificar ↗" en tu navegador para confirmar el estatus de cancelación en el portal del SAT.
+          </div>
+        </>
       )}
     </>
   );
