@@ -11098,17 +11098,75 @@ function MNuevaComprobacion({ userId, onDone, showSnack }) {
             <>
               <div className="spread" style={{padding:"2px 0"}}><span className="muted" style={{fontSize:11}}>Emisor</span><strong style={{fontSize:12}}>{f.emisor || "—"}</strong></div>
               <div className="spread" style={{padding:"2px 0"}}><span className="muted" style={{fontSize:11}}>Total</span><strong className="mono" style={{fontSize:13}}>{window.fmtMXN(f.total)}</strong></div>
-              <div style={{marginTop:6, display:"flex", alignItems:"center", justifyContent:"space-between"}}>
-                <div>
-                  <div style={{fontSize:11, fontWeight:600}}>{f.nombreCuenta}</div>
-                  <div className="mono" style={{fontSize:10, color:"var(--text-3)"}}>{f.cuenta}</div>
+              <div style={{marginTop:8}}>
+                <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4}}>
+                  <span style={{fontSize:10.5, color:"var(--text-3)", fontWeight:600, letterSpacing:"0.04em"}}>CUENTA CONTABLE</span>
+                  <span style={{padding:"2px 8px", borderRadius:20, fontSize:10, fontWeight:500, background:f.confianza >= 0.85 ? "var(--success-soft)" : "var(--warn-soft)", color:f.confianza >= 0.85 ? "var(--success)" : "var(--warn)"}}>
+                    {Math.round(f.confianza*100)}% {f.confianza >= 0.85 ? "✓" : "revisar"}
+                  </span>
                 </div>
-                <span style={{padding:"2px 8px", borderRadius:20, fontSize:10, fontWeight:500, background:f.confianza >= 0.85 ? "var(--success-soft)" : "var(--warn-soft)", color:f.confianza >= 0.85 ? "var(--success)" : "var(--warn)"}}>
-                  {Math.round(f.confianza*100)}% {f.confianza >= 0.85 ? "✓" : "revisar"}
-                </span>
+                <select
+                  className="select"
+                  value={f.cuenta||""}
+                  onChange={e => {
+                    const v = e.target.value;
+                    const meta = window.findCuenta(v) || {nombre: v};
+                    setFacturas(prev => prev.map((x,j) => j===i ? {...x, cuenta: v, nombreCuenta: meta.nombre, confianza: 1.0} : x));
+                  }}
+                  style={{
+                    width:"100%", fontSize:12, padding:"7px 8px",
+                    borderColor: f.cuenta === "6121200001" ? "var(--warn)" : "var(--border)",
+                    background: f.cuenta === "6121200001" ? "rgba(245,158,11,.08)" : "var(--surface)",
+                  }}
+                >
+                  {window.CATALOGO_GASTOS.map(g => (
+                    <option key={g.cuenta} value={g.cuenta}>{g.cuenta} · {g.nombre}</option>
+                  ))}
+                </select>
+                {f.cuenta === "6121200001" && (
+                  <div style={{fontSize:10, color:"var(--warn)", marginTop:3}}>⚠ No Deducibles — verifica si aplica</div>
+                )}
               </div>
             </>
-          ) : <div className="muted" style={{fontSize:12}}>Archivo adjunto (no XML)</div>}
+          ) : (
+            <div style={{marginTop:4}}>
+              <div style={{display:"grid", gridTemplateColumns:"auto 1fr", gap:8, alignItems:"center", marginBottom:8}}>
+                <span style={{fontSize:11, color:"var(--text-3)"}}>Total $</span>
+                <input
+                  type="number" inputMode="decimal" step="0.01" min="0"
+                  value={f.total||""}
+                  onChange={e => {
+                    const v = parseFloat(e.target.value)||0;
+                    setFacturas(prev => prev.map((x,j) => j===i ? {...x, total: v, subtotal: v?+(v/1.16).toFixed(2):0, iva: v?+(v - v/1.16).toFixed(2):0} : x));
+                  }}
+                  style={{padding:"6px 8px", fontSize:13, border:"1px solid var(--border)", borderRadius:6, background:"var(--surface)", color:"var(--text)", fontFamily:"monospace", textAlign:"right", width:"100%", boxSizing:"border-box"}}
+                  placeholder="0.00"
+                />
+              </div>
+              <div style={{fontSize:10.5, color:"var(--text-3)", marginBottom:3, fontWeight:600, letterSpacing:"0.04em"}}>CUENTA CONTABLE</div>
+              <select
+                className="select"
+                value={f.cuenta||"6121200001"}
+                onChange={e => {
+                  const v = e.target.value;
+                  const meta = window.findCuenta(v) || {nombre: v};
+                  setFacturas(prev => prev.map((x,j) => j===i ? {...x, cuenta: v, nombreCuenta: meta.nombre} : x));
+                }}
+                style={{
+                  width:"100%", fontSize:12, padding:"7px 8px",
+                  borderColor: f.cuenta === "6121200001" ? "var(--warn)" : "var(--border)",
+                  background: f.cuenta === "6121200001" ? "rgba(245,158,11,.08)" : "var(--surface)",
+                }}
+              >
+                {window.CATALOGO_GASTOS.map(g => (
+                  <option key={g.cuenta} value={g.cuenta}>{g.cuenta} · {g.nombre}</option>
+                ))}
+              </select>
+              {f.cuenta === "6121200001" && (
+                <div style={{fontSize:10, color:"var(--warn)", marginTop:3}}>⚠ No Deducibles — verifica si aplica</div>
+              )}
+            </div>
+          )}
         </div>
       ))}
 
