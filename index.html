@@ -11981,10 +11981,12 @@ function PerfilPage({ userId, onLogout }) {
             <div className="field"><label>CLABE bancaria</label><input className="input mono" value={u.clabe||""} disabled style={{opacity:.7, cursor:"not-allowed"}}/><div style={{fontSize:11, color:"var(--text-3)", marginTop:4}}>Para cambiar tu CLABE, contacta a Tesorería</div></div>
             <div className="field"><label>Banco</label><input className="input" value={u.banco||""} disabled style={{opacity:.7, cursor:"not-allowed"}}/></div>
           </div>
-          <div style={{marginTop:18, display:"flex", justifyContent:"flex-end", gap:8}}>
-            <button className="btn ghost">Cancelar</button>
-            <button className="btn primary">Guardar cambios</button>
-          </div>
+          {(u.rol === "admin" || u.rol === "tesoreria") && (
+            <div style={{marginTop:18, display:"flex", justifyContent:"flex-end", gap:8}}>
+              <button className="btn ghost">Cancelar</button>
+              <button className="btn primary">Guardar cambios</button>
+            </div>
+          )}
         </div>
 
         <div>
